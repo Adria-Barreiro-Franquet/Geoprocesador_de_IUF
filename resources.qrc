@@ -1,0 +1,5 @@
+<RCC>
+    <qresource prefix="/plugins/geoprocesador_de_iuf" >
+        <file>icon.png</file>
+    </qresource>
+</RCC>
