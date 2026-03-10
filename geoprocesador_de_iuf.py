@@ -21,9 +21,12 @@
  *                                                                         *
  ***************************************************************************/
 """
-from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication
+from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication, QVariant
 from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAction
+
+import processing
+from qgis.core import QgsProject, QgsSpatialIndex, QgsField, QgsProcessingFeedback
 
 # Initialize Qt resources from file resources.py
 from .resources import *
@@ -194,23 +197,30 @@ class GeoprocesadorDeIUF:
         self.dlg.show()
         # Run the dialog event loop
         self.dlg.exec_()
+    
+    def log(self, mensaje):
+        """Función auxiliar para escribir en el log de la interfaz y actualizar la barra de progreso"""
+        self.dlg.txtLog.append(mensaje)
+        QCoreApplication.processEvents()
 
     def ejecutar_geoprocesos(self):
         """Esta función se lanza al pulsar OK"""
+
+        self.dlg.setEnabled(False)
         
         #> 1. Reiniciar la interfaz
         self.dlg.txtLog.clear()
         self.dlg.progressBar.setValue(0)
-        self.dlg.txtLog.append("Iniciando lectura de datos...")
+        self.log("Iniciando lectura de datos...")
 
         #> 2. Leer las capas seleccionadas
         capa_edif = self.dlg.selectorCapaEdificaciones.currentLayer()
         capa_comb = self.dlg.selectorCapaCombustible.currentLayer()
         if not capa_edif or not capa_comb:
-            self.dlg.txtLog.append("ERROR: Faltan capas por seleccionar.")
+            self.log("ERROR: Faltan capas por seleccionar.")
             return
-        self.dlg.txtLog.append(f"> Capa de edificaciones: {capa_edif.name()}")
-        self.dlg.txtLog.append(f"> Capa de combustible: {capa_comb.name()}")
+        self.log(f"> Capa de edificaciones: {capa_edif.name()}")
+        self.log(f"> Capa de combustible: {capa_comb.name()}")
 
         #> 3. Leer el método elegido
         if self.dlg.metodoAlcassena.isChecked():
@@ -218,16 +228,92 @@ class GeoprocesadorDeIUF:
         elif self.dlg.metodoABF.isChecked():
             metodo = "ABF"
         else:
-            self.dlg.txtLog.append("ERROR: Se debe seleccionar un método de cálculo.")
+            self.log("ERROR: Se debe seleccionar un método de cálculo.")
             return
-        self.dlg.txtLog.append(f"> Método seleccionado: {metodo}")
+        self.log(f"> Método seleccionado: {metodo}")
 
         #> 4. Leer si queremos resultados intermedios
         intermedios = self.dlg.ResultadosIntermedios.isChecked()
-        self.dlg.txtLog.append(f"> Mostrar intermedios: {intermedios}")
+        self.log(f"> Mostrar intermedios: {intermedios}")
 
-        # --- AQUÍ IRÁ EL GEOPROCESAMIENTO REAL MÁS ADELANTE ---
+        #> 5.1. MÉTODO ALCASENA
+        if metodo == "Alcassena et al.":
 
-        #> X. Finalizar
+            feedback = QgsProcessingFeedback()
+            def actualizar_barra(progreso):
+                self.dlg.progressBar.setValue(int(progreso))
+                QCoreApplication.processEvents()
+            feedback.progressChanged.connect(actualizar_barra)
+
+            #> 5.1.1. Calcular el centroide de cada edificio:
+            self.log("-> Calculando centroides de las edificaciones...") if intermedios else None
+            capa_centroides = processing.run("native:centroids", {
+                'INPUT': capa_edif,
+                'ALL_PARTS': False,
+                'OUTPUT': 'TEMPORARY_OUTPUT'
+            }, feedback=feedback)['OUTPUT']
+            
+            #> 5.1.2. Crear una cuadrícula de 150x150m:
+            self.log("-> Creando cuadrícula de 150x150m...") if intermedios else None
+            bb = capa_edif.extent()
+            capa_cuadricula = processing.run("native:creategrid", {
+                'TYPE': 2,
+                'EXTENT': f"{bb.xMinimum()},{bb.xMaximum()},{bb.yMinimum()},{bb.yMaximum()}",
+                'HSPACING': 150,
+                'VSPACING': 150,
+                'HOVERLAY': 0,
+                'VOVERLAY': 0,
+                'CRS': capa_edif.crs().authid(),
+                'OUTPUT': 'TEMPORARY_OUTPUT'
+            }, feedback=feedback)['OUTPUT']
+
+            #> 5.1.3. Calcular la densidad de edificaciones en cada celda de la cuadricula (edificios / km^2):
+            self.log("-> Calculando densidad de edificaciones en cada celda...") if intermedios else None
+            indice = QgsSpatialIndex(capa_centroides.getFeatures())
+            capa_cuadricula.startEditing()
+            capa_cuadricula.dataProvider().addAttributes([
+                QgsField('edificios', QVariant.Int),
+                QgsField('densidad', QVariant.Double, prec=3)
+                ])
+            capa_cuadricula.updateFields()
+            idx_edif = capa_cuadricula.fields().indexOf('edificios')
+            idx_dens = capa_cuadricula.fields().indexOf('densidad')
+            total_celdas = capa_cuadricula.featureCount()
+            for i, feature in enumerate(capa_cuadricula.getFeatures()):
+                ids_puntos = indice.intersects(feature.geometry().boundingBox())
+                conteo = len(ids_puntos)
+                densidad = round(conteo / 0.0225, 3) #150m x 150m = 0.0225 km^2
+                capa_cuadricula.changeAttributeValue(feature.id(), idx_edif, conteo)
+                capa_cuadricula.changeAttributeValue(feature.id(), idx_dens, densidad)
+                if i % 1000 == 0: #se actualiza la barra de progreso cada 1000 celdas
+                    self.dlg.progressBar.setValue(int((i / total_celdas) * 100))
+                    QCoreApplication.processEvents()
+            capa_cuadricula.commitChanges()
+            capa_cuadricula.setName("Cuadrícula de densidad de edificaciones")
+            QgsProject.instance().addMapLayer(capa_cuadricula) if intermedios else None
+
+            #> 5.1.4. Clasificar cada cuadrícula en 3 clases de densidad (muy_baja, baja, medio_alta):
+            self.log("-> Clasificando la densidad de cada celda...") if intermedios else None
+            capa_cuadricula.dataProvider().addAttributes([QgsField('densidad_clase', QVariant.String, len=16)])
+            capa_cuadricula.updateFields()
+            idx_densclase = capa_cuadricula.fields().indexOf('densidad_clase')
+            actualizador = {} #{feature_id: {idx_densclase: clase}}
+            for feature in capa_cuadricula.getFeatures():
+                densidad = feature.attributes()[idx_dens]
+                if densidad < 6.18:
+                    clase = 'muy_baja'
+                elif densidad >= 49.42:
+                    clase = 'medio_alta'
+                else:
+                    clase = 'baja'
+                actualizador[feature.id()] = {idx_densclase: clase}
+            capa_cuadricula.dataProvider().changeAttributeValues(actualizador)
+            
+            #> 5.1.5. ...
+
+        #> 5.2. ...
+
+        #> 6. Finalizar
+        self.dlg.setEnabled(True)
         self.dlg.progressBar.setValue(100)
-        self.dlg.txtLog.append("FIN.")
+        self.log("FIN.")
