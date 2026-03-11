@@ -255,7 +255,7 @@ class GeoprocesadorDeIUF:
             
             #> 5.1.2. Crear una cuadrícula de 150x150m:
             self.log("-> Creando cuadrícula de 150x150m...") if intermedios else None
-            bb = capa_edif.extent()
+            bb = capa_comb.extent() #se toma la extensión de la capa de combustible para asegurar que cubre toda el área de estudio
             capa_cuadricula = processing.run("native:creategrid", {
                 'TYPE': 2,
                 'EXTENT': f"{bb.xMinimum()},{bb.xMaximum()},{bb.yMinimum()},{bb.yMaximum()}",
@@ -289,10 +289,10 @@ class GeoprocesadorDeIUF:
                     self.dlg.progressBar.setValue(int((i / total_celdas) * 100))
                     QCoreApplication.processEvents()
             capa_cuadricula.commitChanges()
-            capa_cuadricula.setName("Cuadrícula de densidad de edificaciones")
+            capa_cuadricula.setName("grid_resultados_intermedios")
             QgsProject.instance().addMapLayer(capa_cuadricula) if intermedios else None
 
-            #> 5.1.4. Clasificar cada cuadrícula en 3 clases de densidad (muy_baja, baja, medio_alta):
+            #FALTA FEEDBACK PROGRESO> 5.1.4. Clasificar cada cuadrícula en 3 clases de densidad (muy_baja, baja, medio_alta):
             self.log("-> Clasificando la densidad de cada celda...") if intermedios else None
             capa_cuadricula.dataProvider().addAttributes([QgsField('densidad_clase', QVariant.String, len=16)])
             capa_cuadricula.updateFields()
@@ -300,16 +300,35 @@ class GeoprocesadorDeIUF:
             actualizador = {} #{feature_id: {idx_densclase: clase}}
             for feature in capa_cuadricula.getFeatures():
                 densidad = feature.attributes()[idx_dens]
-                if densidad < 6.18:
+                if densidad < 6.18 and densidad > 0:
                     clase = 'muy_baja'
                 elif densidad >= 49.42:
                     clase = 'medio_alta'
+                elif densidad == 0:
+                    clase = None
                 else:
                     clase = 'baja'
                 actualizador[feature.id()] = {idx_densclase: clase}
             capa_cuadricula.dataProvider().changeAttributeValues(actualizador)
             
-            #> 5.1.5. ...
+            #FALTA FEEDBACK PROGRESO> 5.1.5. Reclasificar la capa de combustible (en realidad es una capa de usos del suelo) en 2 clases (vegetado y no_vegetado):
+            self.log("-> Reclasificando la capa de combustible...") if intermedios else None
+            capa_comb.startEditing()
+            capa_comb.dataProvider().addAttributes([QgsField('contenido', QVariant.String, len=16)])
+            capa_comb.updateFields()
+            idx_contenido = capa_comb.fields().indexOf('contenido')
+            idx_tipo_uso_suelo = capa_comb.fields().indexOf('ID_COBERTURA_MAX') #ID_COBERTURA_MAX (COBERTURA_DESC) es un campo de la capa del SIOSE AR 2017 que identifica el tipo de uso del suelo
+            ids_monte = [121,122,200,210,222,223,224,231,232,251,252,253,254,255,256,257,258,259,260,241,280,290,300,301,302,310,312,313,316,320] #ids de los tipos considerados vegetados (monte) en el artículo 5 de la Ley 43/2003, de 21 de noviembre, de Montes
+            actualizador = {} #{feature_id: {idx_contenido: contenido}}
+            for feature in capa_comb.getFeatures():
+                tipo_uso = feature.attributes()[idx_tipo_uso_suelo]
+                contenido = 'vegetado' if tipo_uso in ids_monte else 'no_vegetado'
+                actualizador[feature.id()] = {idx_contenido: contenido}
+            capa_comb.dataProvider().changeAttributeValues(actualizador)
+            capa_comb.commitChanges()
+
+            #> 5.1.6. Calcular si cada celda contiene mayoritariamente suelo vegetado o no vegetado:
+            #...
 
         #> 5.2. ...
 
