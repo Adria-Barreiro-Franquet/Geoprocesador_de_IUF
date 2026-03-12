@@ -266,6 +266,9 @@ class GeoprocesadorDeIUF:
                 'CRS': capa_edif.crs().authid(),
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=feedback)['OUTPUT']
+            n_celdas = capa_cuadricula.featureCount()
+            capa_cuadricula.setName("grid_resultados_intermedios")
+            QgsProject.instance().addMapLayer(capa_cuadricula) if intermedios else None
 
             #> 5.1.3. Calcular la densidad de edificaciones en cada celda de la cuadricula (edificios / km^2):
             self.log("-> Calculando densidad de edificaciones en cada celda...") if intermedios else None
@@ -273,7 +276,7 @@ class GeoprocesadorDeIUF:
             capa_cuadricula.startEditing()
             capa_cuadricula.dataProvider().addAttributes([
                 QgsField('edificios', QVariant.Int),
-                QgsField('densidad', QVariant.Double, prec=3)
+                QgsField('densidad', QVariant.Double, prec=2)
                 ])
             capa_cuadricula.updateFields()
             idx_edif = capa_cuadricula.fields().indexOf('edificios')
@@ -282,23 +285,23 @@ class GeoprocesadorDeIUF:
             for i, feature in enumerate(capa_cuadricula.getFeatures()):
                 ids_puntos = indice.intersects(feature.geometry().boundingBox())
                 conteo = len(ids_puntos)
-                densidad = round(conteo / 0.0225, 3) #150m x 150m = 0.0225 km^2
+                densidad = round(conteo / 0.0225, 2) #150m x 150m = 0.0225 km^2
                 capa_cuadricula.changeAttributeValue(feature.id(), idx_edif, conteo)
                 capa_cuadricula.changeAttributeValue(feature.id(), idx_dens, densidad)
-                if i % 1000 == 0: #se actualiza la barra de progreso cada 1000 celdas
+                if i % 10000 == 0: #se actualiza la barra de progreso cada 10000 celdas
                     self.dlg.progressBar.setValue(int((i / total_celdas) * 100))
                     QCoreApplication.processEvents()
             capa_cuadricula.commitChanges()
-            capa_cuadricula.setName("grid_resultados_intermedios")
-            QgsProject.instance().addMapLayer(capa_cuadricula) if intermedios else None
+            self.dlg.progressBar.setValue(0)
+            QCoreApplication.processEvents()
 
-            #FALTA FEEDBACK PROGRESO> 5.1.4. Clasificar cada cuadrícula en 3 clases de densidad (muy_baja, baja, medio_alta):
+            #> 5.1.4. Clasificar cada cuadrícula en 3 clases de densidad (muy_baja, baja, medio_alta):
             self.log("-> Clasificando la densidad de cada celda...") if intermedios else None
             capa_cuadricula.dataProvider().addAttributes([QgsField('densidad_clase', QVariant.String, len=16)])
             capa_cuadricula.updateFields()
             idx_densclase = capa_cuadricula.fields().indexOf('densidad_clase')
             actualizador = {} #{feature_id: {idx_densclase: clase}}
-            for feature in capa_cuadricula.getFeatures():
+            for i, feature in enumerate(capa_cuadricula.getFeatures()):
                 densidad = feature.attributes()[idx_dens]
                 if densidad < 6.18 and densidad > 0:
                     clase = 'muy_baja'
@@ -309,26 +312,185 @@ class GeoprocesadorDeIUF:
                 else:
                     clase = 'baja'
                 actualizador[feature.id()] = {idx_densclase: clase}
+                if i % 10000 == 0: #se actualiza la barra de progreso cada 10000 celdas
+                    self.dlg.progressBar.setValue(int((i / n_celdas) * 100))
+                    QCoreApplication.processEvents()
             capa_cuadricula.dataProvider().changeAttributeValues(actualizador)
+            self.dlg.progressBar.setValue(0)
+            QCoreApplication.processEvents()
             
-            #FALTA FEEDBACK PROGRESO> 5.1.5. Reclasificar la capa de combustible (en realidad es una capa de usos del suelo) en 2 clases (vegetado y no_vegetado):
+            #> 5.1.5. Reclasificar la capa de combustible (en realidad es una capa de usos del suelo) en 2 clases (vegetado y no_vegetado):
             self.log("-> Reclasificando la capa de combustible...") if intermedios else None
             capa_comb.startEditing()
-            capa_comb.dataProvider().addAttributes([QgsField('contenido', QVariant.String, len=16)])
+            if 'contenido' not in [f.name() for f in capa_comb.fields()]:
+                capa_comb.dataProvider().addAttributes([QgsField('contenido', QVariant.String, len=16)])
             capa_comb.updateFields()
             idx_contenido = capa_comb.fields().indexOf('contenido')
             idx_tipo_uso_suelo = capa_comb.fields().indexOf('ID_COBERTURA_MAX') #ID_COBERTURA_MAX (COBERTURA_DESC) es un campo de la capa del SIOSE AR 2017 que identifica el tipo de uso del suelo
             ids_monte = [121,122,200,210,222,223,224,231,232,251,252,253,254,255,256,257,258,259,260,241,280,290,300,301,302,310,312,313,316,320] #ids de los tipos considerados vegetados (monte) en el artículo 5 de la Ley 43/2003, de 21 de noviembre, de Montes
             actualizador = {} #{feature_id: {idx_contenido: contenido}}
-            for feature in capa_comb.getFeatures():
+            for i, feature in enumerate(capa_comb.getFeatures()):
                 tipo_uso = feature.attributes()[idx_tipo_uso_suelo]
                 contenido = 'vegetado' if tipo_uso in ids_monte else 'no_vegetado'
                 actualizador[feature.id()] = {idx_contenido: contenido}
+                if i % 10000 == 0: #se actualiza la barra de progreso cada 10000 celdas
+                    self.dlg.progressBar.setValue(int((i / n_celdas) * 100))
+                    QCoreApplication.processEvents()
             capa_comb.dataProvider().changeAttributeValues(actualizador)
             capa_comb.commitChanges()
+            self.dlg.progressBar.setValue(0)
+            QCoreApplication.processEvents()
 
             #> 5.1.6. Calcular si cada celda contiene mayoritariamente suelo vegetado o no vegetado:
-            #...
+            self.log("-> Calculando el contenido mayoritario de cada celda...") if intermedios else None
+            self.log("--> Extrayendo solo las partes de la capa de combustible que son vegetadas...") if intermedios else None
+            capa_vegetada = processing.run("native:extractbyattribute", {
+                'INPUT': capa_comb,
+                'FIELD': 'contenido',
+                'OPERATOR': 0,
+                'VALUE': 'vegetado',
+                'OUTPUT': 'TEMPORARY_OUTPUT'
+            }, feedback=feedback)['OUTPUT']
+            capa_vegetada.setName("capa_vegetada")
+            QgsProject.instance().addMapLayer(capa_vegetada) if intermedios else None
+            self.log("--> Intersectando la capa de vegetado con la cuadrícula...") if intermedios else None
+            capa_cuadricula_overlap = processing.run("native:calculatevectoroverlaps", {
+                'INPUT': capa_cuadricula,
+                'LAYERS': [capa_vegetada],
+                'OUTPUT': 'TEMPORARY_OUTPUT'
+            }, feedback=feedback)['OUTPUT']
+            self.log("--> Determinando el contenido mayoritario en cada celda...") if intermedios else None
+            capa_cuadricula_overlap.startEditing()
+            capa_cuadricula_overlap.dataProvider().addAttributes([QgsField('contenido_predominante', QVariant.String, len=16)])
+            capa_cuadricula_overlap.updateFields()
+            idx_contenido_predom = capa_cuadricula_overlap.fields().indexOf('contenido_predominante')
+            idx_pc = -1
+            for f in capa_cuadricula_overlap.fields():
+                if f.name().endswith('_pc'):  #el algoritmo native:overlapanalysis añade un campo con el porcentaje de superposición de cada capa, que es el que se usará para determinar el contenido mayoritario
+                    idx_pc = capa_cuadricula_overlap.fields().indexOf(f.name())
+                    break
+            actualizador = {} #{feature_id: {idx_contenido_predom: contenido}}
+            for i, feature in enumerate(capa_cuadricula_overlap.getFeatures()):
+                porcentaje_vegetado = feature.attributes()[idx_pc] or 0.0
+                contenido_predom = 'vegetado' if porcentaje_vegetado >= 50 else 'no_vegetado'
+                actualizador[feature.id()] = {idx_contenido_predom: contenido_predom}
+                if i % 10000 == 0: #se actualiza la barra de progreso cada 10000 celdas
+                    self.dlg.progressBar.setValue(int((i / n_celdas) * 100))
+                    QCoreApplication.processEvents()
+            capa_cuadricula_overlap.dataProvider().changeAttributeValues(actualizador)
+            capa_cuadricula_overlap.commitChanges()
+            capa_cuadricula_overlap.setName("grid_resultados_concontenido")
+            QgsProject.instance().addMapLayer(capa_cuadricula_overlap) if intermedios else None
+            self.dlg.progressBar.setValue(0)
+            QCoreApplication.processEvents()
+
+            #> 5.1.7. Combinar poligonos de contenido vegetado:
+            self.log("-> Combinando los polígonos de contenido vegetado...") if intermedios else None
+            capa_vegetada_comb = processing.run("native:dissolve", {
+                'INPUT': capa_vegetada,
+                'FIELD': [],
+                'OUTPUT': 'TEMPORARY_OUTPUT'
+            }, feedback=feedback)['OUTPUT']
+            capa_vegetada_comb = processing.run("native:multiparttosingleparts", {
+                'INPUT': capa_vegetada_comb,
+                'OUTPUT': 'TEMPORARY_OUTPUT'
+            }, feedback=feedback)['OUTPUT']
+            capa_vegetada_comb.setName("capa_vegetada_combinada")
+            QgsProject.instance().addMapLayer(capa_vegetada_comb) if intermedios else None
+
+            #> 5.1.8. Identificar montes de >5km^2:
+            self.log("-> Identificando montes de más de 5 km^2...") if intermedios else None
+            capa_montes = processing.run("native:extractbyexpression", {
+                'INPUT': capa_vegetada_comb,
+                'EXPRESSION': '$area > 5000000', #5 km^2 = 5000000 m^2
+                'OUTPUT': 'TEMPORARY_OUTPUT'
+            }, feedback=feedback)['OUTPUT']
+            capa_montes.setName("montes_mayores_5km2")
+            QgsProject.instance().addMapLayer(capa_montes) if intermedios else None
+
+            #> 5.1.9. Calcular el radio de afectación por pavesas (embers)
+            self.log("-> Calculando el radio de afectación por pavesas...") if intermedios else None
+            buffer_pavesas = processing.run("native:buffer", {
+                'INPUT': capa_montes,
+                'DISTANCE': 2000, #según Alcassena et al., el radio de afectación por pavesas es de 2 km
+                'DISSOLVE': True,
+                'OUTPUT': 'TEMPORARY_OUTPUT'
+            }, feedback=feedback)['OUTPUT']
+            buffer_pavesas.setName("radio_afectacion_pavesas")
+            QgsProject.instance().addMapLayer(buffer_pavesas) if intermedios else None
+
+            #> 5.1.10. Añadir a cada celda de la cuadrícula la información de si intersecta o no con el radio de afectación por pavesas:
+            self.log("-> Añadiendo información de intersección con el radio de afectación...") if intermedios else None
+            indice_pavesas = QgsSpatialIndex(buffer_pavesas.getFeatures())
+            dict_geometrias_pavesas = {f.id(): f.geometry() for f in buffer_pavesas.getFeatures()}
+            capa_cuadricula_overlap.startEditing()
+            capa_cuadricula_overlap.dataProvider().addAttributes([QgsField('interseccion_pavesas', QVariant.String, len=10)])
+            capa_cuadricula_overlap.updateFields()
+            idx_interseccion = capa_cuadricula_overlap.fields().indexOf('interseccion_pavesas')
+            actualizador = {} #{feature_id: {idx_interseccion: 'sí'/'no'}}
+            total_celdas = capa_cuadricula_overlap.featureCount()
+            for i, feature in enumerate(capa_cuadricula_overlap.getFeatures()):
+                geom_celda = feature.geometry()
+                ids_candidatos = indice_pavesas.intersects(geom_celda.boundingBox())
+                interseccion = 'no'
+                if ids_candidatos:
+                    for id_cand in ids_candidatos:
+                        if geom_celda.intersects(dict_geometrias_pavesas[id_cand]):
+                            interseccion = 'sí'
+                            break
+                actualizador[feature.id()] = {idx_interseccion: interseccion}
+                if i % 10000 == 0: 
+                    self.dlg.progressBar.setValue(int((i / total_celdas) * 100))
+                    QCoreApplication.processEvents()
+            capa_cuadricula_overlap.dataProvider().changeAttributeValues(actualizador)
+            capa_cuadricula_overlap.commitChanges()
+            capa_cuadricula_overlap.setName("grid_resultados_mezcla")
+                
+            self.dlg.progressBar.setValue(0)
+            QCoreApplication.processEvents()
+
+            #> 5.1.11. Calcular el tipo de IUF en cada celda de la cuadrícula según la fórmula del método Alcassena et al.:
+            self.log("-> Calculando el tipo de IUF en cada celda...") if intermedios else None
+            capa_resultado = processing.run("native:fieldcalculator", {
+                'INPUT': capa_cuadricula_overlap,
+                'FIELD_NAME': 'clase_IUF',
+                'FIELD_TYPE': 2,
+                'FIELD_LENGTH': 128,
+                'NEW_FIELD': True,
+                'FORMULA': """
+                    CASE
+                        -- (1) Very low and low housing density
+                        WHEN "contenido_predominante" = 'no_vegetado' AND ("densidad_clase" = 'baja' OR "densidad_clase" = 'muy_baja') AND "interseccion_pavesas" = 'no' 
+                            THEN 'Densidad de edificaciones baja o muy baja en terreno no vegetado'
+                            
+                        -- (2) Medium and high housing density
+                        WHEN "contenido_predominante" = 'no_vegetado' AND "densidad_clase" = 'medio_alta' AND "interseccion_pavesas" = 'no' 
+                            THEN 'Densidad de edificaciones medio_alta en terreno no vegetado'
+                            
+                        -- (3) Vegetated
+                        WHEN "contenido_predominante" = 'vegetado' AND "densidad" = 0 
+                            THEN 'Vegetado sin edificaciones'
+                            
+                        -- (4) Dispersed rural
+                        WHEN "contenido_predominante" = 'vegetado' AND "densidad_clase" = 'muy_baja'
+                            THEN 'Rural disperso'
+                            
+                        -- (5) Intermix WUI
+                        WHEN "contenido_predominante" = 'vegetado' AND ("densidad_clase" = 'baja' OR "densidad_clase" = 'medio_alta')
+                            THEN 'IUF intermix'
+                            
+                        -- (6) Interface WUI
+                        WHEN "contenido_predominante" = 'no_vegetado' AND ("densidad_clase" = 'baja' OR "densidad_clase" = 'medio_alta') AND "interseccion_pavesas" = 'sí' 
+                            THEN 'IUF interface'
+                            
+                        ELSE 'No clasificado' 
+                    END
+                """,
+                'OUTPUT': 'TEMPORARY_OUTPUT'
+            }, feedback=feedback)['OUTPUT']
+            capa_resultado.setName("Mapa_IUF_Metodo_Alcassena_et_al")
+            QgsProject.instance().addMapLayer(capa_resultado)
+            self.log("Geoproceso finalizado, GUARDE LA CAPA RESULTANTE PARA NO PERDER LOS RESULTADOS")
 
         #> 5.2. ...
 
