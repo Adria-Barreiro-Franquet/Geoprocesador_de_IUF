@@ -489,7 +489,60 @@ class GeoprocesadorDeIUF:
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=feedback)['OUTPUT']
             capa_resultado.setName("Mapa_IUF_Metodo_Alcassena_et_al")
-            QgsProject.instance().addMapLayer(capa_resultado)
+            QgsProject.instance().addMapLayer(capa_resultado) if intermedios else None
+
+            #> 5.1.12. Rellenar celdas vacías según el tipo de IUF más común entre sus vecinas:
+            self.log("-> Rellenando celdas vacías...") if intermedios else None
+            n=2 #2 iteraciones de rellenado
+            while n>0:
+                capa_resultado.startEditing()
+                idx_clase_iuf = capa_resultado.fields().indexOf('clase_IUF')
+                indice_resultado = QgsSpatialIndex(capa_resultado.getFeatures())
+                dict_geometrias_resultado = {f.id(): f.geometry() for f in capa_resultado.getFeatures()}
+                actualizador = {} #{feature_id: {idx_clase_iuf: clase_iuf}}
+                total_celdas = capa_resultado.featureCount()
+                for i, feature in enumerate(capa_resultado.getFeatures()):
+                    clase_iuf = feature.attributes()[idx_clase_iuf]
+                    if clase_iuf == 'No clasificado':
+                        geom_celda = feature.geometry()
+                        ids_vecinos = indice_resultado.nearestNeighbor(geom_celda.centroid().asPoint(), 8) #se buscan las 8 celdas más cercanas
+                        clases_vecinos = []
+                        for id_vec in ids_vecinos:
+                            if id_vec != feature.id() and geom_celda.touches(dict_geometrias_resultado[id_vec]):
+                                clase_vecino = capa_resultado.getFeature(id_vec).attributes()[idx_clase_iuf]
+                                if clase_vecino != 'No clasificado':
+                                    clases_vecinos.append(clase_vecino)
+                        if clases_vecinos:
+                            clase_mas_comun = max(set(clases_vecinos), key=clases_vecinos.count)
+                            actualizador[feature.id()] = {idx_clase_iuf: clase_mas_comun}
+                            dict_geometrias_resultado[feature.id()] = geom_celda
+                    if i % 10000 == 0: 
+                        self.dlg.progressBar.setValue(int((i / total_celdas) * 100))
+                        QCoreApplication.processEvents()
+                capa_resultado.dataProvider().changeAttributeValues(actualizador)
+                capa_resultado.commitChanges()
+                n-=1
+
+            #> 5.1.13. Eliminar celdas que no se han podido clasificar y disolver las que sí:
+            self.log("-> Eliminando y disolviendo celdas...") if intermedios else None
+            capa_resultado_clasificado = processing.run("native:extractbyexpression", {
+                'INPUT': capa_resultado,
+                'EXPRESSION': '"clase_IUF" != \'No clasificado\'',
+                'OUTPUT': 'TEMPORARY_OUTPUT'
+            }, feedback=feedback)['OUTPUT']
+            capa_resultado_clasificado.setName("Mapa_IUF_Clasificado")
+            QgsProject.instance().addMapLayer(capa_resultado_clasificado) if intermedios else None
+            capa_final = processing.run("native:dissolve", {
+                'INPUT': capa_resultado_clasificado,
+                'FIELD': 'clase_IUF',
+                'OUTPUT': 'TEMPORARY_OUTPUT'
+            }, feedback=feedback)['OUTPUT']
+            capa_final.setName("Mapa_IUF")
+            QgsProject.instance().addMapLayer(capa_final)
+
+            #> FIN
+            self.dlg.progressBar.setValue(100)
+            QCoreApplication.processEvents()
             self.log("Geoproceso finalizado, GUARDE LA CAPA RESULTANTE PARA NO PERDER LOS RESULTADOS")
 
         #> 5.2. ...
