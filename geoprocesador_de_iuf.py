@@ -21,6 +21,8 @@
  *                                                                         *
  ***************************************************************************/
 """
+import time
+
 from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication, QVariant
 from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAction
@@ -205,6 +207,8 @@ class GeoprocesadorDeIUF:
 
     def ejecutar_geoprocesos(self):
         """Esta función se lanza al pulsar OK"""
+
+        tiempo_inicio = time.time()
 
         self.dlg.setEnabled(False)
         
@@ -544,6 +548,10 @@ class GeoprocesadorDeIUF:
             self.dlg.progressBar.setValue(100)
             QCoreApplication.processEvents()
             self.log("Geoproceso finalizado, GUARDE LA CAPA RESULTANTE PARA NO PERDER LOS RESULTADOS")
+            tiempo_fin = time.time()
+            segundos_totales = tiempo_fin - tiempo_inicio
+            horas_totales = segundos_totales / 3600
+            self.log(f"Tiempo total de ejecución: {horas_totales} horas")
 
         #> 5.2. ...
 
