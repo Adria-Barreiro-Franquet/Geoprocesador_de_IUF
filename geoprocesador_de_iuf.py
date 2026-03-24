@@ -28,7 +28,7 @@ from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAction
 
 import processing
-from qgis.core import QgsProject, QgsSpatialIndex, QgsField, QgsProcessingFeedback
+from qgis.core import QgsProject, QgsSpatialIndex, QgsField, QgsProcessingFeedback, QgsVectorLayer
 
 # Initialize Qt resources from file resources.py
 from .resources import *
@@ -72,7 +72,6 @@ class GeoprocesadorDeIUF:
         # Must be set in initGui() to survive plugin reloads
         self.first_start = None
 
-    # noinspection PyMethodMayBeStatic
     def tr(self, message):
         """Get the translation for a string using Qt translation API.
 
@@ -184,33 +183,59 @@ class GeoprocesadorDeIUF:
                 action)
             self.iface.removeToolBarIcon(action)
 
+    def log(self, mensaje):
+            """Función auxiliar para escribir en el log de la interfaz y actualizar la barra de progreso"""
+            self.dlg.txtLog.append(mensaje)
+            QCoreApplication.processEvents()
 
     def run(self):
-        """Run method that performs all the real work"""
-
-        # Create the dialog with elements (after translation) and keep reference
-        # Only create GUI ONCE in callback, so that it will only load when the plugin is started
         if self.first_start == True:
             self.first_start = False
             self.dlg = GeoprocesadorDeIUFDialog()
-            self.dlg.button_box.accepted.connect(self.ejecutar_geoprocesos) #Cuando se pulse el botón "OK" de la UI, se ejecutará la función 'ejecutar_geoprocesos'
+            self.dlg.boton_iniciar.clicked.connect(self.ejecutar_geoprocesos) #Cuando se pulse el botón "OK" de la UI, se ejecutará la función 'ejecutar_geoprocesos'
+            self.dlg.boton_cancelar.clicked.connect(self.cancelar_geoprocesos)
+            self.dlg.boton_cerrar.clicked.connect(self.dlg.close)
 
-        # show the dialog
         self.dlg.show()
-        # Run the dialog event loop
         self.dlg.exec_()
-    
-    def log(self, mensaje):
-        """Función auxiliar para escribir en el log de la interfaz y actualizar la barra de progreso"""
-        self.dlg.txtLog.append(mensaje)
-        QCoreApplication.processEvents()
+
+    def cancelar_geoprocesos(self):
+        """Esta función se lanza al pulsar el botón Cancelar"""
+        if hasattr(self, 'cancelado') and self.cancelado == True:
+            return
+        self.dlg.progressBar.setValue(0)
+        self.dlg.txtLog.clear()
+        self.log("Proceso abortado por el usuario.")
+        self.cancelado = True
+        self.dlg.boton_iniciar.setEnabled(True)
+        self.dlg.selectorCapaEdificaciones.setEnabled(True)
+        self.dlg.selectorCapaCombustible.setEnabled(True)
+        self.dlg.metodoAlcasena.setEnabled(True)
+        self.dlg.metodoLampinMaillet.setEnabled(True)
+        self.dlg.directorio_final.setEnabled(True)
+        self.dlg.ResultadosIntermedios.setEnabled(True)
+        if hasattr(self, 'feedback') and self.feedback is not None:
+            self.feedback.cancel()
 
     def ejecutar_geoprocesos(self):
         """Esta función se lanza al pulsar OK"""
 
         tiempo_inicio = time.time()
 
-        self.dlg.setEnabled(False)
+        self.dlg.boton_iniciar.setEnabled(False)
+        self.dlg.selectorCapaEdificaciones.setEnabled(False)
+        self.dlg.selectorCapaCombustible.setEnabled(False)
+        self.dlg.metodoAlcasena.setEnabled(False)
+        self.dlg.metodoLampinMaillet.setEnabled(False)
+        self.dlg.directorio_final.setEnabled(False)
+        self.dlg.ResultadosIntermedios.setEnabled(False)
+
+        self.cancelado = False
+        self.feedback = QgsProcessingFeedback()
+        def actualizar_barra(progreso):
+            self.dlg.progressBar.setValue(int(progreso))
+            QCoreApplication.processEvents()
+        self.feedback.progressChanged.connect(actualizar_barra)
         
         #> 1. Reiniciar la interfaz
         self.dlg.txtLog.clear()
@@ -222,17 +247,31 @@ class GeoprocesadorDeIUF:
         capa_comb = self.dlg.selectorCapaCombustible.currentLayer()
         if not capa_edif or not capa_comb:
             self.log("ERROR: Faltan capas por seleccionar.")
+            self.dlg.boton_iniciar.setEnabled(True)
+            self.dlg.selectorCapaEdificaciones.setEnabled(True)
+            self.dlg.selectorCapaCombustible.setEnabled(True)
+            self.dlg.metodoAlcasena.setEnabled(True)
+            self.dlg.metodoLampinMaillet.setEnabled(True)
+            self.dlg.directorio_final.setEnabled(True)
+            self.dlg.ResultadosIntermedios.setEnabled(True)
             return
         self.log(f"> Capa de edificaciones: {capa_edif.name()}")
         self.log(f"> Capa de combustible: {capa_comb.name()}")
 
         #> 3. Leer el método elegido
-        if self.dlg.metodoAlcassena.isChecked():
+        if self.dlg.metodoAlcasena.isChecked():
             metodo = "Alcassena et al."
-        elif self.dlg.metodoABF.isChecked():
-            metodo = "ABF"
+        elif self.dlg.metodoLampinMaillet.isChecked():
+            metodo = "Lampin-Maillet et al."
         else:
             self.log("ERROR: Se debe seleccionar un método de cálculo.")
+            self.dlg.boton_iniciar.setEnabled(True)
+            self.dlg.selectorCapaEdificaciones.setEnabled(True)
+            self.dlg.selectorCapaCombustible.setEnabled(True)
+            self.dlg.metodoAlcasena.setEnabled(True)
+            self.dlg.metodoLampinMaillet.setEnabled(True)
+            self.dlg.directorio_final.setEnabled(True)
+            self.dlg.ResultadosIntermedios.setEnabled(True)
             return
         self.log(f"> Método seleccionado: {metodo}")
 
@@ -240,7 +279,23 @@ class GeoprocesadorDeIUF:
         intermedios = self.dlg.ResultadosIntermedios.isChecked()
         self.log(f"> Mostrar intermedios: {intermedios}")
 
-        #> 5.1. MÉTODO ALCASENA
+        #> 5. Leer el directorio de salida
+        ruta_salida = self.dlg.directorio_final.filePath()
+        if not ruta_salida:
+            self.log("ERROR: Debes indicar un archivo de salida para guardar el mapa IUF.")
+            self.dlg.boton_iniciar.setEnabled(True)
+            self.dlg.selectorCapaEdificaciones.setEnabled(True)
+            self.dlg.selectorCapaCombustible.setEnabled(True)
+            self.dlg.metodoAlcasena.setEnabled(True)
+            self.dlg.metodoLampinMaillet.setEnabled(True)
+            self.dlg.directorio_final.setEnabled(True)
+            self.dlg.ResultadosIntermedios.setEnabled(True)
+            return
+        self.log(f"> Archivo de salida: {ruta_salida}")
+
+        self.log("----------------------------------------------------------------")
+
+        #> 6.1. MÉTODO ALCASENA
         if metodo == "Alcassena et al.":
 
             feedback = QgsProcessingFeedback()
@@ -249,16 +304,16 @@ class GeoprocesadorDeIUF:
                 QCoreApplication.processEvents()
             feedback.progressChanged.connect(actualizar_barra)
 
-            #> 5.1.1. Calcular el centroide de cada edificio:
-            self.log("-> Calculando centroides de las edificaciones...") if intermedios else None
+            #> 6.1.1. Calcular el centroide de cada edificio:
+            self.log("-> Calculando centroides de las edificaciones... (1/13)") if intermedios else None
             capa_centroides = processing.run("native:centroids", {
                 'INPUT': capa_edif,
                 'ALL_PARTS': False,
                 'OUTPUT': 'TEMPORARY_OUTPUT'
-            }, feedback=feedback)['OUTPUT']
+            }, feedback=self.feedback)['OUTPUT']
             
-            #> 5.1.2. Crear una cuadrícula de 150x150m:
-            self.log("-> Creando cuadrícula de 150x150m...") if intermedios else None
+            #> 6.1.2. Crear una cuadrícula de 150x150m:
+            self.log("-> Creando cuadrícula de 150x150m... (2/13)") if intermedios else None
             bb = capa_comb.extent() #se toma la extensión de la capa de combustible para asegurar que cubre toda el área de estudio
             capa_cuadricula = processing.run("native:creategrid", {
                 'TYPE': 2,
@@ -269,13 +324,13 @@ class GeoprocesadorDeIUF:
                 'VOVERLAY': 0,
                 'CRS': capa_edif.crs().authid(),
                 'OUTPUT': 'TEMPORARY_OUTPUT'
-            }, feedback=feedback)['OUTPUT']
+            }, feedback=self.feedback)['OUTPUT']
             n_celdas = capa_cuadricula.featureCount()
             capa_cuadricula.setName("grid_resultados_intermedios")
             QgsProject.instance().addMapLayer(capa_cuadricula) if intermedios else None
 
-            #> 5.1.3. Calcular la densidad de edificaciones en cada celda de la cuadricula (edificios / km^2):
-            self.log("-> Calculando densidad de edificaciones en cada celda...") if intermedios else None
+            #> 6.1.3. Calcular la densidad de edificaciones en cada celda de la cuadricula (edificios / km^2):
+            self.log("-> Calculando densidad de edificaciones en cada celda... (3/13)") if intermedios else None
             indice = QgsSpatialIndex(capa_centroides.getFeatures())
             capa_cuadricula.startEditing()
             capa_cuadricula.dataProvider().addAttributes([
@@ -295,12 +350,14 @@ class GeoprocesadorDeIUF:
                 if i % 10000 == 0: #se actualiza la barra de progreso cada 10000 celdas
                     self.dlg.progressBar.setValue(int((i / total_celdas) * 100))
                     QCoreApplication.processEvents()
+                if self.cancelado: #se comprueba si se ha pulsado el botón de cancelar durante el proceso
+                    return
             capa_cuadricula.commitChanges()
             self.dlg.progressBar.setValue(0)
             QCoreApplication.processEvents()
 
-            #> 5.1.4. Clasificar cada cuadrícula en 3 clases de densidad (muy_baja, baja, medio_alta):
-            self.log("-> Clasificando la densidad de cada celda...") if intermedios else None
+            #> 6.1.4. Clasificar cada cuadrícula en 3 clases de densidad (muy_baja, baja, medio_alta):
+            self.log("-> Clasificando la densidad de cada celda... (4/13)") if intermedios else None
             capa_cuadricula.dataProvider().addAttributes([QgsField('densidad_clase', QVariant.String, len=16)])
             capa_cuadricula.updateFields()
             idx_densclase = capa_cuadricula.fields().indexOf('densidad_clase')
@@ -319,12 +376,14 @@ class GeoprocesadorDeIUF:
                 if i % 10000 == 0: #se actualiza la barra de progreso cada 10000 celdas
                     self.dlg.progressBar.setValue(int((i / n_celdas) * 100))
                     QCoreApplication.processEvents()
+                if self.cancelado: #se comprueba si se ha pulsado el botón de cancelar durante el proceso
+                    return
             capa_cuadricula.dataProvider().changeAttributeValues(actualizador)
             self.dlg.progressBar.setValue(0)
             QCoreApplication.processEvents()
             
-            #> 5.1.5. Reclasificar la capa de combustible (en realidad es una capa de usos del suelo) en 2 clases (vegetado y no_vegetado):
-            self.log("-> Reclasificando la capa de combustible...") if intermedios else None
+            #> 6.1.5. Reclasificar la capa de combustible (en realidad es una capa de usos del suelo) en 2 clases (vegetado y no_vegetado):
+            self.log("-> Reclasificando la capa de combustible... (5/13)") if intermedios else None
             capa_comb.startEditing()
             if 'contenido' not in [f.name() for f in capa_comb.fields()]:
                 capa_comb.dataProvider().addAttributes([QgsField('contenido', QVariant.String, len=16)])
@@ -340,13 +399,15 @@ class GeoprocesadorDeIUF:
                 if i % 10000 == 0: #se actualiza la barra de progreso cada 10000 celdas
                     self.dlg.progressBar.setValue(int((i / n_celdas) * 100))
                     QCoreApplication.processEvents()
+                if self.cancelado: #se comprueba si se ha pulsado el botón de cancelar durante el proceso
+                    return
             capa_comb.dataProvider().changeAttributeValues(actualizador)
             capa_comb.commitChanges()
             self.dlg.progressBar.setValue(0)
             QCoreApplication.processEvents()
 
-            #> 5.1.6. Calcular si cada celda contiene mayoritariamente suelo vegetado o no vegetado:
-            self.log("-> Calculando el contenido mayoritario de cada celda...") if intermedios else None
+            #> 6.1.6. Calcular si cada celda contiene mayoritariamente suelo vegetado o no vegetado:
+            self.log("-> Calculando el contenido mayoritario de cada celda... (6/13)") if intermedios else None
             self.log("--> Extrayendo solo las partes de la capa de combustible que son vegetadas...") if intermedios else None
             capa_vegetada = processing.run("native:extractbyattribute", {
                 'INPUT': capa_comb,
@@ -354,7 +415,7 @@ class GeoprocesadorDeIUF:
                 'OPERATOR': 0,
                 'VALUE': 'vegetado',
                 'OUTPUT': 'TEMPORARY_OUTPUT'
-            }, feedback=feedback)['OUTPUT']
+            }, feedback=self.feedback)['OUTPUT']
             capa_vegetada.setName("capa_vegetada")
             QgsProject.instance().addMapLayer(capa_vegetada) if intermedios else None
             self.log("--> Intersectando la capa de vegetado con la cuadrícula...") if intermedios else None
@@ -362,7 +423,7 @@ class GeoprocesadorDeIUF:
                 'INPUT': capa_cuadricula,
                 'LAYERS': [capa_vegetada],
                 'OUTPUT': 'TEMPORARY_OUTPUT'
-            }, feedback=feedback)['OUTPUT']
+            }, feedback=self.feedback)['OUTPUT']
             self.log("--> Determinando el contenido mayoritario en cada celda...") if intermedios else None
             capa_cuadricula_overlap.startEditing()
             capa_cuadricula_overlap.dataProvider().addAttributes([QgsField('contenido_predominante', QVariant.String, len=16)])
@@ -381,6 +442,8 @@ class GeoprocesadorDeIUF:
                 if i % 10000 == 0: #se actualiza la barra de progreso cada 10000 celdas
                     self.dlg.progressBar.setValue(int((i / n_celdas) * 100))
                     QCoreApplication.processEvents()
+                if self.cancelado: #se comprueba si se ha pulsado el botón de cancelar durante el proceso
+                    return
             capa_cuadricula_overlap.dataProvider().changeAttributeValues(actualizador)
             capa_cuadricula_overlap.commitChanges()
             capa_cuadricula_overlap.setName("grid_resultados_concontenido")
@@ -388,43 +451,43 @@ class GeoprocesadorDeIUF:
             self.dlg.progressBar.setValue(0)
             QCoreApplication.processEvents()
 
-            #> 5.1.7. Combinar poligonos de contenido vegetado:
-            self.log("-> Combinando los polígonos de contenido vegetado...") if intermedios else None
+            #> 6.1.7. Combinar poligonos de contenido vegetado:
+            self.log("-> Combinando los polígonos de contenido vegetado... (7/13)") if intermedios else None
             capa_vegetada_comb = processing.run("native:dissolve", {
                 'INPUT': capa_vegetada,
                 'FIELD': [],
                 'OUTPUT': 'TEMPORARY_OUTPUT'
-            }, feedback=feedback)['OUTPUT']
+            }, feedback=self.feedback)['OUTPUT']
             capa_vegetada_comb = processing.run("native:multiparttosingleparts", {
                 'INPUT': capa_vegetada_comb,
                 'OUTPUT': 'TEMPORARY_OUTPUT'
-            }, feedback=feedback)['OUTPUT']
+            }, feedback=self.feedback)['OUTPUT']
             capa_vegetada_comb.setName("capa_vegetada_combinada")
             QgsProject.instance().addMapLayer(capa_vegetada_comb) if intermedios else None
 
-            #> 5.1.8. Identificar montes de >5km^2:
-            self.log("-> Identificando montes de más de 5 km^2...") if intermedios else None
+            #> 6.1.8. Identificar montes de >5km^2:
+            self.log("-> Identificando montes de más de 5 km^2... (8/13)") if intermedios else None
             capa_montes = processing.run("native:extractbyexpression", {
                 'INPUT': capa_vegetada_comb,
                 'EXPRESSION': '$area > 5000000', #5 km^2 = 5000000 m^2
                 'OUTPUT': 'TEMPORARY_OUTPUT'
-            }, feedback=feedback)['OUTPUT']
+            }, feedback=self.feedback)['OUTPUT']
             capa_montes.setName("montes_mayores_5km2")
             QgsProject.instance().addMapLayer(capa_montes) if intermedios else None
 
-            #> 5.1.9. Calcular el radio de afectación por pavesas (embers)
-            self.log("-> Calculando el radio de afectación por pavesas...") if intermedios else None
+            #> 6.1.9. Calcular el radio de afectación por pavesas (embers)
+            self.log("-> Calculando el radio de afectación por pavesas... (9/13)") if intermedios else None
             buffer_pavesas = processing.run("native:buffer", {
                 'INPUT': capa_montes,
                 'DISTANCE': 2000, #según Alcassena et al., el radio de afectación por pavesas es de 2 km
                 'DISSOLVE': True,
                 'OUTPUT': 'TEMPORARY_OUTPUT'
-            }, feedback=feedback)['OUTPUT']
+            }, feedback=self.feedback)['OUTPUT']
             buffer_pavesas.setName("radio_afectacion_pavesas")
             QgsProject.instance().addMapLayer(buffer_pavesas) if intermedios else None
 
-            #> 5.1.10. Añadir a cada celda de la cuadrícula la información de si intersecta o no con el radio de afectación por pavesas:
-            self.log("-> Añadiendo información de intersección con el radio de afectación...") if intermedios else None
+            #> 6.1.10. Añadir a cada celda de la cuadrícula la información de si intersecta o no con el radio de afectación por pavesas:
+            self.log("-> Añadiendo información de intersección con el radio de afectación... (10/13)") if intermedios else None
             indice_pavesas = QgsSpatialIndex(buffer_pavesas.getFeatures())
             dict_geometrias_pavesas = {f.id(): f.geometry() for f in buffer_pavesas.getFeatures()}
             capa_cuadricula_overlap.startEditing()
@@ -446,6 +509,8 @@ class GeoprocesadorDeIUF:
                 if i % 10000 == 0: 
                     self.dlg.progressBar.setValue(int((i / total_celdas) * 100))
                     QCoreApplication.processEvents()
+                if self.cancelado: #se comprueba si se ha pulsado el botón de cancelar durante el proceso
+                    return
             capa_cuadricula_overlap.dataProvider().changeAttributeValues(actualizador)
             capa_cuadricula_overlap.commitChanges()
             capa_cuadricula_overlap.setName("grid_resultados_mezcla")
@@ -453,8 +518,8 @@ class GeoprocesadorDeIUF:
             self.dlg.progressBar.setValue(0)
             QCoreApplication.processEvents()
 
-            #> 5.1.11. Calcular el tipo de IUF en cada celda de la cuadrícula según la fórmula del método Alcassena et al.:
-            self.log("-> Calculando el tipo de IUF en cada celda...") if intermedios else None
+            #> 6.1.11. Calcular el tipo de IUF en cada celda de la cuadrícula según la fórmula del método Alcassena et al.:
+            self.log("-> Calculando el tipo de IUF en cada celda... (11/13)") if intermedios else None
             capa_resultado = processing.run("native:fieldcalculator", {
                 'INPUT': capa_cuadricula_overlap,
                 'FIELD_NAME': 'clase_IUF',
@@ -491,12 +556,12 @@ class GeoprocesadorDeIUF:
                     END
                 """,
                 'OUTPUT': 'TEMPORARY_OUTPUT'
-            }, feedback=feedback)['OUTPUT']
+            }, feedback=self.feedback)['OUTPUT']
             capa_resultado.setName("Mapa_IUF_Metodo_Alcassena_et_al")
             QgsProject.instance().addMapLayer(capa_resultado) if intermedios else None
 
-            #> 5.1.12. Rellenar celdas vacías según el tipo de IUF más común entre sus vecinas:
-            self.log("-> Rellenando celdas vacías...") if intermedios else None
+            #> 6.1.12. Rellenar celdas vacías según el tipo de IUF más común entre sus vecinas:
+            self.log("-> Rellenando celdas vacías... (12/13)") if intermedios else None
             n=2 #2 iteraciones de rellenado
             while n>0:
                 capa_resultado.startEditing()
@@ -523,39 +588,47 @@ class GeoprocesadorDeIUF:
                     if i % 10000 == 0: 
                         self.dlg.progressBar.setValue(int((i / total_celdas) * 100))
                         QCoreApplication.processEvents()
+                    if self.cancelado: #se comprueba si se ha pulsado el botón de cancelar durante el proceso
+                        return
                 capa_resultado.dataProvider().changeAttributeValues(actualizador)
                 capa_resultado.commitChanges()
                 n-=1
 
-            #> 5.1.13. Eliminar celdas que no se han podido clasificar y disolver las que sí:
-            self.log("-> Eliminando y disolviendo celdas...") if intermedios else None
+            #> 6.1.13. Eliminar celdas que no se han podido clasificar y disolver las que sí:
+            self.log("-> Eliminando y disolviendo celdas... (13/13)") if intermedios else None
             capa_resultado_clasificado = processing.run("native:extractbyexpression", {
                 'INPUT': capa_resultado,
                 'EXPRESSION': '"clase_IUF" != \'No clasificado\'',
                 'OUTPUT': 'TEMPORARY_OUTPUT'
-            }, feedback=feedback)['OUTPUT']
+            }, feedback=self.feedback)['OUTPUT']
             capa_resultado_clasificado.setName("Mapa_IUF_Clasificado")
             QgsProject.instance().addMapLayer(capa_resultado_clasificado) if intermedios else None
-            capa_final = processing.run("native:dissolve", {
+            path_final = processing.run("native:dissolve", {
                 'INPUT': capa_resultado_clasificado,
                 'FIELD': 'clase_IUF',
-                'OUTPUT': 'TEMPORARY_OUTPUT'
-            }, feedback=feedback)['OUTPUT']
-            capa_final.setName("Mapa_IUF")
+                'OUTPUT': ruta_salida
+            }, feedback=self.feedback)['OUTPUT']
+            capa_final = QgsVectorLayer(path_final, "Mapa_IUF_Final", "ogr")
             QgsProject.instance().addMapLayer(capa_final)
 
             #> FIN
             self.dlg.progressBar.setValue(100)
             QCoreApplication.processEvents()
-            self.log("Geoproceso finalizado, GUARDE LA CAPA RESULTANTE PARA NO PERDER LOS RESULTADOS")
+            self.log("Geoproceso finalizado. El mapa de IUF se ha guardado en la ruta indicada. También se ha añadido al proyecto.")
             tiempo_fin = time.time()
             segundos_totales = tiempo_fin - tiempo_inicio
             horas_totales = segundos_totales / 3600
-            self.log(f"Tiempo total de ejecución: {horas_totales} horas")
+            self.log(f"Tiempo total de ejecución: {round(horas_totales, 2)} horas")
 
-        #> 5.2. ...
+        #> 6.2. MÉTODO LAMPIN-MAILLET
 
         #> 6. Finalizar
-        self.dlg.setEnabled(True)
+        self.dlg.boton_iniciar.setEnabled(True)
+        self.dlg.selectorCapaEdificaciones.setEnabled(True)
+        self.dlg.selectorCapaCombustible.setEnabled(True)
+        self.dlg.metodoAlcasena.setEnabled(True)
+        self.dlg.metodoLampinMaillet.setEnabled(True)
+        self.dlg.directorio_final.setEnabled(True)
+        self.dlg.ResultadosIntermedios.setEnabled(True)
         self.dlg.progressBar.setValue(100)
         self.log("FIN.")
