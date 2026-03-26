@@ -359,7 +359,7 @@ class GeoprocesadorDeIUF:
             if self.cancelado: return
             self.log("-> Clasificando la densidad de cada celda... (4/13)") if intermedios else None
             formula_clasificacion = """
-                CASE 
+                CASE
                     WHEN "densidad" = 0 THEN NULL
                     WHEN "densidad" > 0 AND "densidad" < 6.18 THEN 'muy_baja'
                     WHEN "densidad" >= 49.42 THEN 'medio_alta'
