@@ -86,7 +86,6 @@ class GeoprocesadorDeIUF:
         # noinspection PyTypeChecker,PyArgumentList,PyCallByClass
         return QCoreApplication.translate('GeoprocesadorDeIUF', message)
 
-
     def add_action(
         self,
         icon_path,
@@ -174,7 +173,6 @@ class GeoprocesadorDeIUF:
         # will be set False in run()
         self.first_start = True
 
-
     def unload(self):
         """Removes the plugin menu item and icon from QGIS GUI."""
         for action in self.actions:
@@ -236,6 +234,8 @@ class GeoprocesadorDeIUF:
             self.dlg.progressBar.setValue(int(progreso))
             QCoreApplication.processEvents()
         self.feedback.progressChanged.connect(actualizar_barra)
+
+        ids_monte = '121,122,200,210,222,223,224,231,232,251,252,253,254,255,256,257,258,259,260,241,280,290,300,301,302,310,312,313,316,320'
         
         #> 1. Reiniciar la interfaz
         self.dlg.txtLog.clear()
@@ -298,12 +298,6 @@ class GeoprocesadorDeIUF:
         #> 6.1. MÉTODO ALCASENA
         if metodo == "Alcassena et al.":
 
-            feedback = QgsProcessingFeedback()
-            def actualizar_barra(progreso):
-                self.dlg.progressBar.setValue(int(progreso))
-                QCoreApplication.processEvents()
-            feedback.progressChanged.connect(actualizar_barra)
-
             #> 6.1.1. Calcular el centroide de cada edificio:
             if self.cancelado: return
             self.log("-> Calculando centroides de las edificaciones... (1/13)") if intermedios else None
@@ -327,7 +321,6 @@ class GeoprocesadorDeIUF:
                 'CRS': capa_edif.crs().authid(),
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
-            n_celdas = capa_cuadricula.featureCount()
 
             #> 6.1.3. Calcular la densidad de edificaciones en cada celda de la cuadricula (edificios / km^2):
             if self.cancelado: return
@@ -358,14 +351,6 @@ class GeoprocesadorDeIUF:
             #> 6.1.4. Clasificar cada cuadrícula en 3 clases de densidad (muy_baja, baja, medio_alta):
             if self.cancelado: return
             self.log("-> Clasificando la densidad de cada celda... (4/13)") if intermedios else None
-            formula_clasificacion = """
-                CASE
-                    WHEN "densidad" = 0 THEN NULL
-                    WHEN "densidad" > 0 AND "densidad" < 6.18 THEN 'muy_baja'
-                    WHEN "densidad" >= 49.42 THEN 'medio_alta'
-                    ELSE 'baja'
-                END
-            """
             capa_cuadricula_clasificada = processing.run("native:fieldcalculator", {
                 'INPUT': capa_cuadricula,
                 'FIELD_NAME': 'densidad_clase',
@@ -373,7 +358,14 @@ class GeoprocesadorDeIUF:
                 'FIELD_LENGTH': 16,
                 'FIELD_PRECISION': 0,
                 'NEW_FIELD': True,
-                'FORMULA': formula_clasificacion,
+                'FORMULA': """
+                                CASE
+                                    WHEN "densidad" = 0 THEN NULL
+                                    WHEN "densidad" > 0 AND "densidad" < 6.18 THEN 'muy_baja'
+                                    WHEN "densidad" >= 49.42 THEN 'medio_alta'
+                                    ELSE 'baja'
+                                END
+                            """,
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
             capa_cuadricula = capa_cuadricula_clasificada
@@ -381,8 +373,6 @@ class GeoprocesadorDeIUF:
             #> 6.1.5. Reclasificar la capa de combustible (siose) en 2 clases (vegetado y no_vegetado):
             if self.cancelado: return
             self.log("-> Reclasificando los usos del suelo... (5/13)") if intermedios else None
-            ids_monte = '121,122,200,210,222,223,224,231,232,251,252,253,254,255,256,257,258,259,260,241,280,290,300,301,302,310,312,313,316,320'
-            formula_reclasificacion = f"IF(\"ID_COBERTURA_MAX\" IN ({ids_monte}), 'vegetado', 'no_vegetado')"
             capa_comb_reclasificada = processing.run("native:fieldcalculator", {
                 'INPUT': capa_comb,
                 'FIELD_NAME': 'contenido',
@@ -390,10 +380,9 @@ class GeoprocesadorDeIUF:
                 'FIELD_LENGTH': 16,
                 'FIELD_PRECISION': 0,
                 'NEW_FIELD': True,
-                'FORMULA': formula_reclasificacion,
+                'FORMULA': f"IF(\"ID_COBERTURA_MAX\" IN ({ids_monte}), 'vegetado', 'no_vegetado')",
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
-            if self.cancelado: return
             capa_comb = capa_comb_reclasificada
 
             #> 6.1.6. Calcular si cada celda contiene mayoritariamente suelo vegetado o no vegetado:
@@ -564,23 +553,6 @@ class GeoprocesadorDeIUF:
             #> 6.1.12. Rellenar celdas vacías según el tipo de IUF más común entre sus vecinas:
             if self.cancelado: return
             self.log("-> Rellenando celdas vacías... (12/13)") if intermedios else None
-            formula_rellenado = """
-                CASE 
-                    WHEN "clase_IUF" = 'No clasificado' THEN
-                        COALESCE(
-                            array_first(
-                                array_majority(
-                                    array_remove_all(
-                                        overlay_touches(@layer, "clase_IUF"), 
-                                        'No clasificado'
-                                    )
-                                )
-                            ),
-                            'No clasificado'
-                        )
-                    ELSE "clase_IUF"
-                END
-            """
             for n in range(2):
                 if self.cancelado: return
                 self.log(f"--> Ejecutando pasada de rellenado {n+1}/2...") if intermedios else None
@@ -591,7 +563,23 @@ class GeoprocesadorDeIUF:
                     'FIELD_TYPE': 2,
                     'FIELD_LENGTH': 32,
                     'NEW_FIELD': False,
-                    'FORMULA': formula_rellenado,
+                    'FORMULA': """
+                                    CASE 
+                                        WHEN "clase_IUF" = 'No clasificado' THEN
+                                            COALESCE(
+                                                array_first(
+                                                    array_majority(
+                                                        array_remove_all(
+                                                            overlay_touches(@layer, "clase_IUF"), 
+                                                            'No clasificado'
+                                                        )
+                                                    )
+                                                ),
+                                                'No clasificado'
+                                            )
+                                        ELSE "clase_IUF"
+                                    END
+                                """,
                     'OUTPUT': 'TEMPORARY_OUTPUT'
                 }, feedback=self.feedback)['OUTPUT']
                 capa_resultado = capa_rellenada
@@ -627,6 +615,71 @@ class GeoprocesadorDeIUF:
             self.log(f"Tiempo total de ejecución: {round(horas_totales, 2)} horas")
 
         #> 6.2. MÉTODO LAMPIN-MAILLET
+        if metodo == "Lampin-Maillet et al.":
+            
+            #> 6.2.1. Reclasificar la capa de combustible (siose) en 2 clases (vegetado y no_vegetado):
+            if self.cancelado: return
+            self.log("-> Reclasificando los usos del suelo... (1/x)") if intermedios else None
+            capa_comb_reclasificada = processing.run("native:fieldcalculator", {
+                'INPUT': capa_comb,
+                'FIELD_NAME': 'contenido',
+                'FIELD_TYPE': 2,
+                'FIELD_LENGTH': 16,
+                'FIELD_PRECISION': 0,
+                'NEW_FIELD': True,
+                'FORMULA': f"IF(\"ID_COBERTURA_MAX\" IN ({ids_monte}), 'vegetado', 'no_vegetado')",
+                'OUTPUT': 'TEMPORARY_OUTPUT'
+            }, feedback=self.feedback)['OUTPUT']
+            capa_comb = capa_comb_reclasificada
+    
+            #> 6.2.2. Seleccionar edificaciones dentro de la zona de afectación por bosques:
+            if self.cancelado: return
+            self.log("-> Seleccionando edificaciones dentro de la zona de afectación por bosques... (2/x)") if intermedios else None
+            self.log("--> Extrayendo solo las partes de la capa de combustible que son vegetadas...") if intermedios else None
+            capa_vegetada = processing.run("native:extractbyattribute", {
+                'INPUT': capa_comb,
+                'FIELD': 'contenido',
+                'OPERATOR': 0,
+                'VALUE': 'vegetado',
+                'OUTPUT': 'TEMPORARY_OUTPUT'
+            }, feedback=self.feedback)['OUTPUT']
+            capa_vegetada.setName("vegetacion_considerada")
+            QgsProject.instance().addMapLayer(capa_vegetada) if intermedios else None
+            self.log("--> Creando índices espaciales...") if intermedios else None
+            processing.run("native:createspatialindex", {'INPUT': capa_edif}, feedback=self.feedback)
+            processing.run("native:createspatialindex", {'INPUT': capa_vegetada}, feedback=self.feedback)
+            self.log("--> Trazando el radio de afectación por bosques...") if intermedios else None
+            capa_edif_buffer = processing.run("native:buffer", {
+                'INPUT': capa_vegetada,
+                'DISTANCE': 200,
+                'DISSOLVE': True,
+                'OUTPUT': 'TEMPORARY_OUTPUT'
+            }, feedback=self.feedback)['OUTPUT']
+            capa_edif_buffer.setName("radio_afectacion_bosques")
+            QgsProject.instance().addMapLayer(capa_edif_buffer) if intermedios else None
+            self.log("--> Seleccionando las edificaciones que intersectan con el radio de afectación...") if intermedios else None
+            capa_edif_intersecta = processing.run("native:extractbylocation", {
+                'INPUT': capa_edif,
+                'PREDICATE': [0],
+                'INTERSECT': capa_edif_buffer,
+                'OUTPUT': 'TEMPORARY_OUTPUT'
+            }, feedback=self.feedback)['OUTPUT']
+            capa_edif_intersecta.setName("edificaciones_en_zona_afectacion_bosques")
+            QgsProject.instance().addMapLayer(capa_edif_intersecta) if intermedios else None
+
+            #> 6.2.3. Classificar conjuntos de edificios según el método de Lampin-Maillet et al. (2009):
+            if self.cancelado: return
+            self.log("-> Clasificando conjuntos de edificios según el método de Lampin-Maillet et al. (2009)... (3/x)") if intermedios else None
+            pass
+
+            #> FIN
+            self.dlg.progressBar.setValue(100)
+            QCoreApplication.processEvents()
+            self.log("Geoproceso finalizado. El mapa de IUF se ha guardado en la ruta indicada. También se ha añadido al proyecto.")
+            tiempo_fin = time.time()
+            segundos_totales = tiempo_fin - tiempo_inicio
+            horas_totales = segundos_totales / 3600
+            self.log(f"Tiempo total de ejecución: {round(horas_totales, 2)} horas")
 
         #> 6. Finalizar
         self.dlg.boton_iniciar.setEnabled(True)
