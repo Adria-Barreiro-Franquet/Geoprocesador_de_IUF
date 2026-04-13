@@ -21,7 +21,7 @@
  *                                                                         *
  ***************************************************************************/
 """
-import time
+import time, os, subprocess
 
 from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication, QVariant
 from qgis.PyQt.QtGui import QIcon
@@ -657,23 +657,89 @@ class GeoprocesadorDeIUF:
                 'DISSOLVE': True,
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
-            capa_edif_buffer.setName("radio_afectacion_bosques")
-            QgsProject.instance().addMapLayer(capa_edif_buffer) if intermedios else None
             self.log("--> Seleccionando las edificaciones que intersectan con el radio de afectación...") if intermedios else None
-            capa_edif_intersecta = processing.run("native:extractbylocation", {
+            capa_edif_afectadas = processing.run("native:extractbylocation", {
                 'INPUT': capa_edif,
                 'PREDICATE': [0],
                 'INTERSECT': capa_edif_buffer,
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
-            capa_edif_intersecta.setName("edificaciones_en_zona_afectacion_bosques")
-            QgsProject.instance().addMapLayer(capa_edif_intersecta) if intermedios else None
+            capa_edif_afectadas.setName("edificaciones_en_zona_afectacion_bosques")
+            QgsProject.instance().addMapLayer(capa_edif_afectadas) if intermedios else None
 
             #> 6.2.3. Classificar conjuntos de edificios según el método de Lampin-Maillet et al. (2009):
             if self.cancelado: return
-            self.log("-> Clasificando conjuntos de edificios según el método de Lampin-Maillet et al. (2009)... (3/x)") if intermedios else None
-            pass
+            self.log("-> Clasificando conjuntos de edificios... (3/x)") if intermedios else None
+            self.log("--> Creando buffers...") if intermedios else None
+            buffers = processing.run("native:buffer", {
+                'INPUT': capa_edif_afectadas,
+                'DISTANCE': 100/2,
+                'DISSOLVE': True,
+                'OUTPUT': 'TEMPORARY_OUTPUT'
+            }, feedback=self.feedback)['OUTPUT']
+            self.log("--> Contando edificios agrupados") if intermedios else None
+            buffers_conteo = processing.run("native:fieldcalculator", {
+                'INPUT': buffers,
+                'FIELD_NAME': 'NUM_EDIF',
+                'FIELD_TYPE': 0,
+                'NEW_FIELD': True,
+                'FORMULA': f"aggregate(layer:='{capa_edif_afectadas.id()}', aggregate:='count', expression:=@id, filter:=intersects($geometry, geometry(@parent)))",
+                'OUTPUT': 'TEMPORARY_OUTPUT'
+            }, feedback=self.feedback)['OUTPUT']
+            self.log("--> Aplicando lógica...") if intermedios else None #lógica del estudio del 2009 (SIN TENER EN CUENTA LOS 2 SUBGRUPOS DE 'Viviendas agrupadas')
+            buffers_clasificados = processing.run("native:fieldcalculator", {
+                'INPUT': buffers_conteo,
+                'FIELD_NAME': 'TIPO_DE_CONJUNTO',
+                'FIELD_TYPE': 2,
+                'FIELD_LENGTH': 32,
+                'FORMULA': """
+                                CASE 
+                                    WHEN "NUM_EDIF" >= 2 AND "NUM_EDIF" <= 3 THEN 'Viviendas aisladas'
+                                    WHEN "NUM_EDIF" >= 4 AND "NUM_EDIF" <= 50 THEN 'Viviendas dispersas'
+                                    WHEN "NUM_EDIF" > 50 THEN 'Viviendas agrupadas'
+                                    ELSE 'No clasificado'
+                                END
+                            """,
+                'OUTPUT': 'TEMPORARY_OUTPUT'
+            }, feedback=self.feedback)['OUTPUT']
+            buffers_clasificados.setName("edificaciones_clasificadas")
+            QgsProject.instance().addMapLayer(buffers_clasificados)
 
+            #> 6.2.4. Rasterizar la capa de vegetación
+            self.log("-> Rasterizando capa de vegetación... (4/x)") if intermedios else None
+            resolucion = 5 #valor totalmente dependiente del entorno de ejecución.
+            extension = capa_vegetada.extent()
+            ext_str = f"{extension.xMinimum()},{extension.xMaximum()},{extension.yMinimum()},{extension.yMaximum()}"
+            capa_vegetada_raster = processing.run("gdal:rasterize", {
+                'INPUT': capa_vegetada,
+                'BURN': 1,
+                'UNITS': 1,
+                'WIDTH': resolucion,
+                'HEIGHT': resolucion,
+                'EXTENT': ext_str,
+                'DATA_TYPE': 1,
+                'NODATA': -9999,
+                'OUTPUT': 'TEMPORARY_OUTPUT'
+            }, feedback=self.feedback)['OUTPUT']
+            capa_vegetada_raster.setName("vegetacion_considerada_raster")
+            QgsProject.instance().addMapLayer(capa_vegetada_raster)
+
+            #> 6.2.5. Calcular el AI de la capa vegetada usando FRAGSTATS
+            fragstats_path = r"C:\Program Files\Fragstats 4.2\frg_cmd.exe" #Path to FRAGSTATS console executable
+            AI_model_path = r"fragstats\Agregation_Index_Fragstats_Model.fca" #Path to the model that computes AI
+
+            batchfile_path = os.path.join("fragstats\_temporal", f"Feature_{id}_bachfile_raster.ftb")
+            output_class_path = os.path.join("fragstats\_temporal", f"Feature_{id}_AI.class")
+            with open(batchfile_path, 'w') as file:
+                file.write(f"{capa_vegetada_raster}, x, 999, x, x, 1, x, IDF_GeoTIFF")
+            comand = [
+                fragstats_path,
+                "-m", AI_model_path,
+                "-b", batchfile_path,
+                "-o", output_class_path
+            ]
+            subprocess.run(comand, check=True)
+            
             #> FIN
             self.dlg.progressBar.setValue(100)
             QCoreApplication.processEvents()
