@@ -428,11 +428,13 @@ class GeoprocesadorDeIUF:
             #> 6.1.7. Combinar poligonos de contenido vegetado:
             if self.cancelado: return
             self.log("-> Combinando los polígonos de contenido vegetado... (7/13)") if intermedios else None
+            self.log("--> Disolviendo...") if intermedios else None
             capa_vegetada_comb = processing.run("native:dissolve", {
                 'INPUT': capa_vegetada,
                 'FIELD': [],
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
+            self.log("--> Combinando...") if intermedios else None
             capa_vegetada_comb = processing.run("native:multiparttosingleparts", {
                 'INPUT': capa_vegetada_comb,
                 'OUTPUT': 'TEMPORARY_OUTPUT'
