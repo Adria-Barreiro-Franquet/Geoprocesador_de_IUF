@@ -694,89 +694,97 @@ class GeoprocesadorDeIUF:
                 'ALL_PARTS': False,
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
-
-            buffers = processing.run("qgis:executesql", {
+            if self.cancelado: return
+            self.log("--> Calculando buffers") #disueltos
+            clusters_principales = processing.run("qgis:executesql", {
                 'INPUT_DATASOURCES': [capa_edif_afectadas],
-                'INPUT_QUERY': """
-                                    SELECT ST_Buffer(geometry, 100/2) AS geometry 
-                                    FROM input1
-                                """,
+                'INPUT_QUERY': "SELECT ST_UnaryUnion(ST_Collect(ST_Buffer(geometry, 50))) AS geometry FROM input1",
                 'GEOMETRY_FIELD': 'geometry',
+                'OUTPUT': 'TEMPORARY_OUTPUT'
+            }, feedback=self.feedback)['OUTPUT'] #50=100/2
+            if self.cancelado: return
+            clusters_secundarios = processing.run("qgis:executesql", {
+                'INPUT_DATASOURCES': [capa_edif_afectadas],
+                'INPUT_QUERY': "SELECT ST_UnaryUnion(ST_Collect(ST_Buffer(geometry, 15))) AS geometry FROM input1",
+                'GEOMETRY_FIELD': 'geometry',
+                'OUTPUT': 'TEMPORARY_OUTPUT'
+            }, feedback=self.feedback)['OUTPUT'] #15=30/2
+            if self.cancelado: return
+            processing.run("native:createspatialindex", {'INPUT': clusters_principales}, feedback=self.feedback)
+            clusters_principales = processing.run("native:multiparttosingleparts", {
+                'INPUT': clusters_principales,
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
             if self.cancelado: return
-            buffers_secundarios = processing.run("qgis:executesql", {
-                'INPUT_DATASOURCES': [capa_edif_afectadas],
-                'INPUT_QUERY': """
-                                    SELECT ST_Buffer(geometry, 30/2) AS geometry 
-                                    FROM input1
-                                """,
-                'GEOMETRY_FIELD': 'geometry',
+            processing.run("native:createspatialindex", {'INPUT': clusters_secundarios}, feedback=self.feedback)
+            clusters_secundarios = processing.run("native:multiparttosingleparts", {
+                'INPUT': clusters_secundarios,
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
             if self.cancelado: return
             self.log("--> Contando edificios agrupados") if intermedios else None
-            processing.run("native:createspatialindex", {'INPUT': buffers}, feedback=self.feedback)
-            buffers_conteo = processing.run("native:fieldcalculator", {
-                'INPUT': buffers,
-                'FIELD_NAME': 'NUM_EDIF',
-                'FIELD_TYPE': 0,
-                'NEW_FIELD': True,
-                'FORMULA': f"aggregate(layer:='{capa_edif_afectadas.id()}', aggregate:='count', expression:=@id, filter:=intersects($geometry, geometry(@parent)))",
+            processing.run("native:createspatialindex", {'INPUT': clusters_principales}, feedback=self.feedback)
+            processing.run("native:createspatialindex", {'INPUT': centroides_afectados}, feedback=self.feedback)
+            clusters_principales_conteo =processing.run("native:countpointsinpolygon", {
+                'POLYGONS': clusters_principales,
+                'POINTS': centroides_afectados,
+                'FIELD': 'NUM_EDIF',
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
             if self.cancelado: return
-            processing.run("native:createspatialindex", {'INPUT': buffers_secundarios}, feedback=self.feedback)
-            buffers_secundarios_conteo = processing.run("native:fieldcalculator", {
-                'INPUT': buffers_secundarios,
-                'FIELD_NAME': 'NUM_EDIF_SEC',
-                'FIELD_TYPE': 0,
-                'NEW_FIELD': True,
-                'FORMULA': f"aggregate(layer:='{capa_edif_afectadas.id()}', aggregate:='count', expression:=@id, filter:=intersects($geometry, geometry(@parent)))",
+            processing.run("native:createspatialindex", {'INPUT': clusters_secundarios}, feedback=self.feedback)
+            clusters_secundarios_conteo =processing.run("native:countpointsinpolygon", {
+                'POLYGONS': clusters_secundarios,
+                'POINTS': centroides_afectados,
+                'FIELD': 'NUM_EDIF',
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
             if self.cancelado: return
             self.log("--> Aplicando lógica...") if intermedios else None #lógica del estudio del 2009
-            processing.run("native:createspatialindex", {'INPUT': buffers_conteo}, feedback=self.feedback)
-            buffers_clasificados = processing.run("native:fieldcalculator", {
-                'INPUT': buffers_conteo,
+            processing.run("native:createspatialindex", {'INPUT': clusters_principales_conteo}, feedback=self.feedback)
+            clusters_principales_clasif = processing.run("native:fieldcalculator", {
+                'INPUT': clusters_principales_conteo,
                 'FIELD_NAME': 'TIPO_DE_CONJUNTO',
                 'FIELD_TYPE': 2,
                 'FIELD_LENGTH': 32,
                 'FORMULA': """
-                                CASE 
-                                    WHEN "NUM_EDIF" >= 2 AND "NUM_EDIF" <= 3 THEN 'Viviendas aisladas'
-                                    WHEN "NUM_EDIF" >= 4 AND "NUM_EDIF" <= 50 THEN 'Viviendas dispersas'
-                                    WHEN "NUM_EDIF" > 50 THEN 'Viviendas agrupadas'
-                                    ELSE 'No clasificado'
-                                END
-                            """,
+                    CASE 
+                        WHEN "NUM_EDIF" >= 2 AND "NUM_EDIF" <= 3 THEN 'Viviendas aisladas'
+                        WHEN "NUM_EDIF" >= 4 AND "NUM_EDIF" <= 50 THEN 'Viviendas dispersas'
+                        WHEN "NUM_EDIF" > 50 THEN 'Viviendas agrupadas'
+                        ELSE 'No clasificado'
+                    END
+                """,
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
             if self.cancelado: return
-            processing.run("native:createspatialindex", {'INPUT': buffers_secundarios_conteo}, feedback=self.feedback)
-            buffers_secundarios_clasificados = processing.run("native:fieldcalculator", {
-                'INPUT': buffers_conteo,
-                'FIELD_NAME': 'TIPO_DE_CONJUNTO',
+            processing.run("native:createspatialindex", {'INPUT': clusters_secundarios_conteo}, feedback=self.feedback)
+            clusters_secundarios_clasif = processing.run("native:fieldcalculator", {
+                'INPUT': clusters_secundarios_conteo,
+                'FIELD_NAME': 'SUBTIPO_DE_CONJUNTO',
                 'FIELD_TYPE': 2,
                 'FIELD_LENGTH': 32,
                 'FORMULA': """
-                                CASE 
-                                    WHEN "NUM_EDIF" >= 2 AND "NUM_EDIF" <= 3 THEN 'Viviendas aisladas'
-                                    WHEN "NUM_EDIF" >= 4 AND "NUM_EDIF" <= 50 THEN 'Viviendas dispersas'
-                                    WHEN "NUM_EDIF" > 50 THEN 'Viviendas agrupadas'
-                                    ELSE 'No clasificado'
-                                END
-                            """,
+                    CASE 
+                        WHEN "NUM_EDIF_SEC" < 10 THEN 'Agrupacion densa'
+                        WHEN "NUM_EDIF_SEC" >= 10 THEN 'Agrupacion muy densa'
+                        ELSE 'Sin subclase'
+                    END
+                """,
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
-            buffers_union = processing.run("native:union", {
-                'INPUT': buffers_clasificados,
-                'OVERLAY': buffers_secundarios_clasificados,
+            if self.cancelado: return
+            self.log("--> Uniendo resultados...") if intermedios else None
+            processing.run("native:createspatialindex", {'INPUT': clusters_principales_clasif}, feedback=self.feedback)
+            processing.run("native:createspatialindex", {'INPUT': clusters_secundarios_clasif}, feedback=self.feedback)
+            buffers_union =processing.run("native:union", {
+                'INPUT': clusters_principales_clasif,
+                'OVERLAY': clusters_secundarios_clasif,
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
-            buffers_union.setName("edificaciones_clasificadas")
-            QgsProject.instance().addMapLayer(buffers_union)
+            if self.cancelado: return
+            buffers_union.setName("conjuntos_de_edificaciones_clasificadas")
+            QgsProject.instance().addMapLayer(buffers_union) if intermedios else None
 
             #> 6.2.4. Rasterizar la capa de vegetación
             self.log("-> Rasterizando capa de vegetación... (4/x)") if intermedios else None
@@ -794,10 +802,11 @@ class GeoprocesadorDeIUF:
                 'NODATA': -9999,
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
+            if self.cancelado: return
             capa_vegetada_raster.setName("vegetacion_considerada_raster")
             QgsProject.instance().addMapLayer(capa_vegetada_raster)
 
-            #> 6.2.5. Calcular el AI de la capa vegetada usando FRAGSTATS
+            """#> 6.2.5. Calcular el AI de la capa vegetada usando FRAGSTATS
             fragstats_path = r"C:\Program Files\Fragstats 4.2\frg_cmd.exe" #Path to FRAGSTATS console executable
             AI_model_path = r"fragstats\Agregation_Index_Fragstats_Model.fca" #Path to the model that computes AI
 
@@ -811,7 +820,7 @@ class GeoprocesadorDeIUF:
                 "-b", batchfile_path,
                 "-o", output_class_path
             ]
-            subprocess.run(comand, check=True)
+            subprocess.run(comand, check=True)"""
             
             #> FIN
             self.dlg.progressBar.setValue(100)
