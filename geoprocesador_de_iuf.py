@@ -295,15 +295,9 @@ class GeoprocesadorDeIUF:
 
             #> 6.1.1. Calcular el centroide de cada edificio:
             self.log("-> Calculando centroides de las edificaciones... (1/13)") if intermedios else None
-            capa_centroides = processing.run("qgis:executesql", {
-                'INPUT_DATASOURCES': [capa_edif],
-                'INPUT_QUERY': """
-                                    SELECT
-                                        id,
-                                        ST_Centroid(geometry) AS geometry
-                                    FROM input1
-                                """,
-                'GEOMETRY_FIELD': 'geometry',
+            capa_centroides = processing.run("native:centroids", {
+                'INPUT': capa_edif,
+                'ALL_PARTS': False,
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
             if self.cancelado: return
