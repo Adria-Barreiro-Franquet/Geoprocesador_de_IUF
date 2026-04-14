@@ -21,15 +21,14 @@
  *                                                                         *
  ***************************************************************************/
 """
-import time, os, subprocess
-from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication, QVariant
+
+import time, os, processing
+from qgis.core import QgsProject, QgsProcessingFeedback, QgsVectorLayer, QgsRasterLayer
+from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication
 from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAction
-import processing
-from qgis.core import QgsProject, QgsSpatialIndex, QgsField, QgsProcessingFeedback, QgsVectorLayer
 from .resources import *
 from .geoprocesador_de_iuf_dialog import GeoprocesadorDeIUFDialog
-import os.path
 
 
 class GeoprocesadorDeIUF:
@@ -791,7 +790,7 @@ class GeoprocesadorDeIUF:
             resolucion = 5 #valor totalmente dependiente del entorno de ejecución.
             extension = capa_vegetada.extent()
             ext_str = f"{extension.xMinimum()},{extension.xMaximum()},{extension.yMinimum()},{extension.yMaximum()}"
-            capa_vegetada_raster = processing.run("gdal:rasterize", {
+            capa_vegetada_raster_path = processing.run("gdal:rasterize", {
                 'INPUT': capa_vegetada,
                 'BURN': 1,
                 'UNITS': 1,
@@ -803,8 +802,8 @@ class GeoprocesadorDeIUF:
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
             if self.cancelado: return
-            capa_vegetada_raster.setName("vegetacion_considerada_raster")
-            QgsProject.instance().addMapLayer(capa_vegetada_raster)
+            capa_vegetada_raster = QgsRasterLayer(capa_vegetada_raster_path, "vegetacion_considerada_raster")
+            QgsProject.instance().addMapLayer(capa_vegetada_raster) if intermedios else None
 
             """#> 6.2.5. Calcular el AI de la capa vegetada usando FRAGSTATS
             fragstats_path = r"C:\Program Files\Fragstats 4.2\frg_cmd.exe" #Path to FRAGSTATS console executable
