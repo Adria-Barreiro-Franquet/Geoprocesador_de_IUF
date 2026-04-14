@@ -735,7 +735,7 @@ class GeoprocesadorDeIUF:
             clusters_secundarios_conteo =processing.run("native:countpointsinpolygon", {
                 'POLYGONS': clusters_secundarios,
                 'POINTS': centroides_afectados,
-                'FIELD': 'NUM_EDIF',
+                'FIELD': 'NUM_EDIF_SEC',
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
             if self.cancelado: return
