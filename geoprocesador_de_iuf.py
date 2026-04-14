@@ -295,6 +295,14 @@ class GeoprocesadorDeIUF:
 
             #> 6.1.1. Calcular el centroide de cada edificio:
             self.log("-> Calculando centroides de las edificaciones... (1/13)") if intermedios else None
+            self.log("--> Aligerando temporalmente la capa de edificaciones...")
+            capa_edif = processing.run("native:retainfields", {
+                'INPUT': capa_edif,
+                'FIELDS': ['id'], 
+                'OUTPUT': 'TEMPORARY_OUTPUT'
+            }, feedback=self.feedback)['OUTPUT']
+            if self.cancelado: return
+            self.log("--> Calculando centroides...")
             capa_centroides = processing.run("native:centroids", {
                 'INPUT': capa_edif,
                 'ALL_PARTS': False,
@@ -331,7 +339,7 @@ class GeoprocesadorDeIUF:
             }, feedback=self.feedback)['OUTPUT']
             if self.cancelado: return
             self.log("--> Calculando...") if intermedios else None
-            capa_cuadricula_densidad = processing.run("native:fieldcalculator", {
+            capa_cuadricula = processing.run("native:fieldcalculator", {
                 'INPUT': capa_cuadricula_conteo,
                 'FIELD_NAME': 'densidad',
                 'FIELD_TYPE': 0,
@@ -342,11 +350,10 @@ class GeoprocesadorDeIUF:
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
             if self.cancelado: return
-            capa_cuadricula = capa_cuadricula_densidad
 
             #> 6.1.4. Clasificar cada cuadrícula en 3 clases de densidad (muy_baja, baja, medio_alta):
             self.log("-> Clasificando la densidad de cada celda... (4/13)") if intermedios else None
-            capa_cuadricula_clasificada = processing.run("native:fieldcalculator", {
+            capa_cuadricula = processing.run("native:fieldcalculator", {
                 'INPUT': capa_cuadricula,
                 'FIELD_NAME': 'densidad_clase',
                 'FIELD_TYPE': 2,
@@ -364,11 +371,10 @@ class GeoprocesadorDeIUF:
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
             if self.cancelado: return
-            capa_cuadricula = capa_cuadricula_clasificada
             
             #> 6.1.5. Reclasificar la capa de combustible (siose) en 2 clases (vegetado y no_vegetado):
             self.log("-> Reclasificando los usos del suelo... (5/13)") if intermedios else None
-            capa_comb_reclasificada = processing.run("qgis:executesql", {
+            capa_comb = processing.run("qgis:executesql", {
                 'INPUT_DATASOURCES': [capa_comb],
                 'INPUT_QUERY': f"""
                                     SELECT *, 
@@ -382,7 +388,6 @@ class GeoprocesadorDeIUF:
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
             if self.cancelado: return
-            capa_comb = capa_comb_reclasificada
 
             #> 6.1.6. Calcular si cada celda contiene mayoritariamente suelo vegetado o no vegetado:
             self.log("-> Calculando el contenido mayoritario de cada celda... (6/13)") if intermedios else None
@@ -411,7 +416,7 @@ class GeoprocesadorDeIUF:
                     nombre_campo_pc = f.name()
                     break
             formula_mayoritario = f"IF(COALESCE(\"{nombre_campo_pc}\", 0) >= 50, 'vegetado', 'no_vegetado')"
-            capa_cuadricula_final = processing.run("native:fieldcalculator", {
+            capa_cuadricula = processing.run("native:fieldcalculator", {
                 'INPUT': capa_cuadricula_overlap,
                 'FIELD_NAME': 'contenido_predominante',
                 'FIELD_TYPE': 2,
@@ -422,7 +427,6 @@ class GeoprocesadorDeIUF:
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
             if self.cancelado: return
-            capa_cuadricula = capa_cuadricula_final
 
             #> 6.1.7. Combinar poligonos de contenido vegetado:
             self.log("-> Combinando los polígonos de contenido vegetado... (7/13)") if intermedios else None
@@ -565,7 +569,7 @@ class GeoprocesadorDeIUF:
                 if self.cancelado: return
                 self.log(f"--> Ejecutando pasada de rellenado {n+1}/2...") if intermedios else None
                 processing.run("native:createspatialindex", {'INPUT': capa_resultado}, feedback=self.feedback)
-                capa_rellenada = processing.run("native:fieldcalculator", {
+                capa_resultado = processing.run("native:fieldcalculator", {
                     'INPUT': capa_resultado,
                     'FIELD_NAME': 'clase_IUF',
                     'FIELD_TYPE': 2,
@@ -591,7 +595,6 @@ class GeoprocesadorDeIUF:
                     'OUTPUT': 'TEMPORARY_OUTPUT'
                 }, feedback=self.feedback)['OUTPUT']
                 if self.cancelado: return
-                capa_resultado = capa_rellenada
 
             #> 6.1.13. Eliminar celdas que no se han podido clasificar y disolver las que sí:
             self.log("-> Eliminando y disolviendo celdas... (13/13)") if intermedios else None
@@ -626,19 +629,21 @@ class GeoprocesadorDeIUF:
         if metodo == "Lampin-Maillet et al.":
             
             #> 6.2.1. Reclasificar la capa de combustible (siose) en 2 clases (vegetado y no_vegetado):
-            if self.cancelado: return
             self.log("-> Reclasificando los usos del suelo... (1/x)") if intermedios else None
-            capa_comb_reclasificada = processing.run("native:fieldcalculator", {
-                'INPUT': capa_comb,
-                'FIELD_NAME': 'contenido',
-                'FIELD_TYPE': 2,
-                'FIELD_LENGTH': 16,
-                'FIELD_PRECISION': 0,
-                'NEW_FIELD': True,
-                'FORMULA': f"IF(\"ID_COBERTURA_MAX\" IN ({ids_monte}), 'vegetado', 'no_vegetado')",
+            capa_comb = processing.run("qgis:executesql", {
+                'INPUT_DATASOURCES': [capa_comb],
+                'INPUT_QUERY': f"""
+                                    SELECT *, 
+                                    CASE 
+                                        WHEN ID_COBERTURA_MAX IN ({ids_monte}) THEN 'vegetado' 
+                                        ELSE 'no_vegetado' 
+                                    END AS contenido 
+                                    FROM input1
+                                """,
+                'GEOMETRY_FIELD': 'geometry',
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
-            capa_comb = capa_comb_reclasificada
+            if self.cancelado: return
     
             #> 6.2.2. Seleccionar edificaciones dentro de la zona de afectación por bosques:
             if self.cancelado: return
