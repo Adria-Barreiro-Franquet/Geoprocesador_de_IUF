@@ -755,7 +755,7 @@ class GeoprocesadorDeIUF:
                     END
                 """,
                 'OUTPUT': 'TEMPORARY_OUTPUT'
-            }, feedback=self.feedback)['OUTPUT']
+            }, feedback=self.feedback)['OUTPUT'] #No clasificado --> Solo 1 edificación
             if self.cancelado: return
             processing.run("native:createspatialindex", {'INPUT': clusters_secundarios_conteo}, feedback=self.feedback)
             clusters_secundarios_clasif = processing.run("native:fieldcalculator", {
