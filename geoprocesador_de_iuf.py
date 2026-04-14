@@ -296,6 +296,7 @@ class GeoprocesadorDeIUF:
             #> 6.1.1. Calcular el centroide de cada edificio:
             self.log("-> Calculando centroides de las edificaciones... (1/13)") if intermedios else None
             self.log("--> Aligerando temporalmente la capa de edificaciones...")
+            processing.run("native:createspatialindex", {'INPUT': capa_edif}, feedback=self.feedback)
             capa_edif = processing.run("native:retainfields", {
                 'INPUT': capa_edif,
                 'FIELDS': ['id'], 
@@ -303,6 +304,7 @@ class GeoprocesadorDeIUF:
             }, feedback=self.feedback)['OUTPUT']
             if self.cancelado: return
             self.log("--> Calculando centroides...")
+            processing.run("native:createspatialindex", {'INPUT': capa_edif}, feedback=self.feedback)
             capa_centroides = processing.run("native:centroids", {
                 'INPUT': capa_edif,
                 'ALL_PARTS': False,
@@ -327,10 +329,9 @@ class GeoprocesadorDeIUF:
 
             #> 6.1.3. Calcular la densidad de edificaciones en cada celda de la cuadricula (edificios / km^2):
             self.log("-> Calculando densidad de edificaciones en cada celda... (3/13)") if intermedios else None
-            self.log("--> Creando índices espaciales...") if intermedios else None
+            self.log("--> Contando...") if intermedios else None
             processing.run("native:createspatialindex", {'INPUT': capa_cuadricula}, feedback=self.feedback)
             processing.run("native:createspatialindex", {'INPUT': capa_centroides}, feedback=self.feedback)
-            self.log("--> Contando...") if intermedios else None
             capa_cuadricula_conteo = processing.run("native:countpointsinpolygon", {
                 'POLYGONS': capa_cuadricula,
                 'POINTS': capa_centroides,
@@ -339,6 +340,7 @@ class GeoprocesadorDeIUF:
             }, feedback=self.feedback)['OUTPUT']
             if self.cancelado: return
             self.log("--> Calculando...") if intermedios else None
+            processing.run("native:createspatialindex", {'INPUT': capa_cuadricula_conteo}, feedback=self.feedback)
             capa_cuadricula = processing.run("native:fieldcalculator", {
                 'INPUT': capa_cuadricula_conteo,
                 'FIELD_NAME': 'densidad',
@@ -353,6 +355,7 @@ class GeoprocesadorDeIUF:
 
             #> 6.1.4. Clasificar cada cuadrícula en 3 clases de densidad (muy_baja, baja, medio_alta):
             self.log("-> Clasificando la densidad de cada celda... (4/13)") if intermedios else None
+            processing.run("native:createspatialindex", {'INPUT': capa_cuadricula}, feedback=self.feedback)
             capa_cuadricula = processing.run("native:fieldcalculator", {
                 'INPUT': capa_cuadricula,
                 'FIELD_NAME': 'densidad_clase',
@@ -374,6 +377,7 @@ class GeoprocesadorDeIUF:
             
             #> 6.1.5. Reclasificar la capa de combustible (siose) en 2 clases (vegetado y no_vegetado):
             self.log("-> Reclasificando los usos del suelo... (5/13)") if intermedios else None
+            processing.run("native:createspatialindex", {'INPUT': capa_comb}, feedback=self.feedback)
             capa_comb = processing.run("qgis:executesql", {
                 'INPUT_DATASOURCES': [capa_comb],
                 'INPUT_QUERY': f"""
@@ -392,6 +396,7 @@ class GeoprocesadorDeIUF:
             #> 6.1.6. Calcular si cada celda contiene mayoritariamente suelo vegetado o no vegetado:
             self.log("-> Calculando el contenido mayoritario de cada celda... (6/13)") if intermedios else None
             self.log("--> Extrayendo solo las partes de la capa de combustible que son vegetadas...") if intermedios else None
+            processing.run("native:createspatialindex", {'INPUT': capa_comb}, feedback=self.feedback)
             capa_vegetada = processing.run("native:extractbyattribute", {
                 'INPUT': capa_comb,
                 'FIELD': 'contenido',
@@ -400,10 +405,9 @@ class GeoprocesadorDeIUF:
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
             if self.cancelado: return
-            self.log("--> Creando índices espaciales...") if intermedios else None
+            self.log("--> Intersectando la capa de vegetado con la cuadrícula...") if intermedios else None
             processing.run("native:createspatialindex", {'INPUT': capa_cuadricula}, feedback=self.feedback)
             processing.run("native:createspatialindex", {'INPUT': capa_vegetada}, feedback=self.feedback)
-            self.log("--> Intersectando la capa de vegetado con la cuadrícula...") if intermedios else None
             capa_cuadricula_overlap = processing.run("native:calculatevectoroverlaps", {
                 'INPUT': capa_cuadricula,
                 'LAYERS': [capa_vegetada],
@@ -411,11 +415,11 @@ class GeoprocesadorDeIUF:
             }, feedback=self.feedback)['OUTPUT']
             if self.cancelado: return
             self.log("--> Determinando el contenido mayoritario en cada celda...") if intermedios else None
+            processing.run("native:createspatialindex", {'INPUT': capa_cuadricula_overlap}, feedback=self.feedback)
             for f in capa_cuadricula_overlap.fields():
                 if f.name().endswith('_pc'):
                     nombre_campo_pc = f.name()
                     break
-            formula_mayoritario = f"IF(COALESCE(\"{nombre_campo_pc}\", 0) >= 50, 'vegetado', 'no_vegetado')"
             capa_cuadricula = processing.run("native:fieldcalculator", {
                 'INPUT': capa_cuadricula_overlap,
                 'FIELD_NAME': 'contenido_predominante',
@@ -423,7 +427,7 @@ class GeoprocesadorDeIUF:
                 'FIELD_LENGTH': 16,
                 'FIELD_PRECISION': 0,
                 'NEW_FIELD': True,
-                'FORMULA': formula_mayoritario,
+                'FORMULA': f"IF(COALESCE(\"{nombre_campo_pc}\", 0) >= 50, 'vegetado', 'no_vegetado')",
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
             if self.cancelado: return
@@ -431,6 +435,7 @@ class GeoprocesadorDeIUF:
             #> 6.1.7. Combinar poligonos de contenido vegetado:
             self.log("-> Combinando los polígonos de contenido vegetado... (7/13)") if intermedios else None
             self.log("--> Disolviendo...") if intermedios else None
+            processing.run("native:createspatialindex", {'INPUT': capa_vegetada}, feedback=self.feedback)
             capa_vegetada = processing.run("qgis:executesql", {
                 'INPUT_DATASOURCES': [capa_vegetada],
                 'INPUT_QUERY': """
@@ -442,6 +447,7 @@ class GeoprocesadorDeIUF:
             }, feedback=self.feedback)['OUTPUT'] #SQL es mucho más rápido para disolver que el algoritmo "native:dissolve" de qgis | DOC: https://jancaha.github.io/r_package_qgis/reference/qgis_executesql.html
             if self.cancelado: return
             self.log("--> Combinando...") if intermedios else None
+            processing.run("native:createspatialindex", {'INPUT': capa_vegetada}, feedback=self.feedback)
             capa_vegetada = processing.run("native:multiparttosingleparts", {
                 'INPUT': capa_vegetada,
                 'OUTPUT': 'TEMPORARY_OUTPUT'
@@ -452,6 +458,7 @@ class GeoprocesadorDeIUF:
 
             #> 6.1.8. Identificar montes de >5km^2:
             self.log("-> Identificando montes de más de 5 km^2... (8/13)") if intermedios else None
+            processing.run("native:createspatialindex", {'INPUT': capa_vegetada}, feedback=self.feedback)
             capa_montes = processing.run("native:extractbyexpression", {
                 'INPUT': capa_vegetada,
                 'EXPRESSION': '$area > 5000000', #5 km^2 = 5000000 m^2
@@ -463,6 +470,7 @@ class GeoprocesadorDeIUF:
 
             #> 6.1.9. Calcular el radio de afectación por pavesas (embers)
             self.log("-> Calculando el radio de afectación por pavesas... (9/13)") if intermedios else None
+            processing.run("native:createspatialindex", {'INPUT': capa_montes}, feedback=self.feedback)
             buffer_pavesas = processing.run("native:buffer", {
                 'INPUT': capa_montes,
                 'DISTANCE': 2000, #según Alcassena et al., el radio de afectación por pavesas es de 2 km | se modifica a 500m
@@ -475,10 +483,8 @@ class GeoprocesadorDeIUF:
 
             #> 6.1.10. Añadir a cada celda de la cuadrícula la información de si intersecta o no con el radio de afectación por pavesas:
             self.log("-> Añadiendo información de intersección con el radio de afectación... (10/13)") if intermedios else None
-            self.log("--> Creando índices espaciales...") if intermedios else None
-            processing.run("native:createspatialindex", {'INPUT': capa_cuadricula}, feedback=self.feedback)
-            processing.run("native:createspatialindex", {'INPUT': buffer_pavesas}, feedback=self.feedback)
             self.log("--> Preparando el cruce espacial...") if intermedios else None
+            processing.run("native:createspatialindex", {'INPUT': buffer_pavesas}, feedback=self.feedback)
             buffer_marcado = processing.run("native:fieldcalculator", {
                 'INPUT': buffer_pavesas,
                 'FIELD_NAME': 'marca_temp',
@@ -490,6 +496,8 @@ class GeoprocesadorDeIUF:
             }, feedback=self.feedback)['OUTPUT']
             if self.cancelado: return
             self.log("--> Cruzando cuadrícula con zona de pavesas...") if intermedios else None
+            processing.run("native:createspatialindex", {'INPUT': capa_cuadricula}, feedback=self.feedback)
+            processing.run("native:createspatialindex", {'INPUT': buffer_marcado}, feedback=self.feedback)
             cuadricula_join = processing.run("native:joinattributesbylocation", {
                 'INPUT': capa_cuadricula,
                 'JOIN': buffer_marcado,
@@ -502,6 +510,7 @@ class GeoprocesadorDeIUF:
             }, feedback=self.feedback)['OUTPUT']
             if self.cancelado: return
             self.log("--> Evaluando resultados...") if intermedios else None
+            processing.run("native:createspatialindex", {'INPUT': cuadricula_join}, feedback=self.feedback)
             capa_cuadricula_sino = processing.run("native:fieldcalculator", {
                 'INPUT': cuadricula_join,
                 'FIELD_NAME': 'interseccion_pavesas',
@@ -512,18 +521,19 @@ class GeoprocesadorDeIUF:
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
             if self.cancelado: return
-            capa_cuadricula_final = processing.run("native:deletecolumn", {
+            processing.run("native:createspatialindex", {'INPUT': capa_cuadricula_sino}, feedback=self.feedback)
+            capa_cuadricula = processing.run("native:deletecolumn", {
                 'INPUT': capa_cuadricula_sino,
                 'COLUMN': ['marca_temp'],
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
             if self.cancelado: return
-            capa_cuadricula = capa_cuadricula_final
             capa_cuadricula.setName("cuadricula_resultados_intermedios")
             QgsProject.instance().addMapLayer(capa_cuadricula) if intermedios else None
 
             #> 6.1.11. Calcular el tipo de IUF en cada celda de la cuadrícula según la fórmula del método Alcassena et al.:
             self.log("-> Calculando el tipo de IUF en cada celda... (11/13)") if intermedios else None
+            processing.run("native:createspatialindex", {'INPUT': capa_cuadricula}, feedback=self.feedback)
             capa_resultado = processing.run("native:fieldcalculator", {
                 'INPUT': capa_cuadricula,
                 'FIELD_NAME': 'clase_IUF',
@@ -599,6 +609,7 @@ class GeoprocesadorDeIUF:
             #> 6.1.13. Eliminar celdas que no se han podido clasificar y disolver las que sí:
             self.log("-> Eliminando y disolviendo celdas... (13/13)") if intermedios else None
             self.log("--> Extrayendo solo las celdas clasificadas...") if intermedios else None
+            processing.run("native:createspatialindex", {'INPUT': capa_resultado}, feedback=self.feedback)
             capa_resultado_clasificado = processing.run("native:extractbyexpression", {
                 'INPUT': capa_resultado,
                 'EXPRESSION': '"clase_IUF" != \'No clasificado\'',
@@ -606,6 +617,7 @@ class GeoprocesadorDeIUF:
             }, feedback=self.feedback)['OUTPUT']
             if self.cancelado: return
             self.log("--> Disolviendo por clase de IUF...") if intermedios else None
+            processing.run("native:createspatialindex", {'INPUT': capa_resultado_clasificado}, feedback=self.feedback)
             path_final = processing.run("native:dissolve", {
                 'INPUT': capa_resultado_clasificado,
                 'FIELD': 'clase_IUF',
@@ -630,6 +642,7 @@ class GeoprocesadorDeIUF:
             
             #> 6.2.1. Reclasificar la capa de combustible (siose) en 2 clases (vegetado y no_vegetado):
             self.log("-> Reclasificando los usos del suelo... (1/x)") if intermedios else None
+            processing.run("native:createspatialindex", {'INPUT': capa_comb}, feedback=self.feedback)
             capa_comb = processing.run("qgis:executesql", {
                 'INPUT_DATASOURCES': [capa_comb],
                 'INPUT_QUERY': f"""
@@ -646,9 +659,9 @@ class GeoprocesadorDeIUF:
             if self.cancelado: return
     
             #> 6.2.2. Seleccionar edificaciones dentro de la zona de afectación por bosques:
-            if self.cancelado: return
             self.log("-> Seleccionando edificaciones dentro de la zona de afectación por bosques... (2/x)") if intermedios else None
             self.log("--> Extrayendo solo las partes de la capa de combustible que son vegetadas...") if intermedios else None
+            processing.run("native:createspatialindex", {'INPUT': capa_comb}, feedback=self.feedback)
             capa_vegetada = processing.run("native:extractbyattribute", {
                 'INPUT': capa_comb,
                 'FIELD': 'contenido',
@@ -656,39 +669,54 @@ class GeoprocesadorDeIUF:
                 'VALUE': 'vegetado',
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
+            if self.cancelado: return
             capa_vegetada.setName("vegetacion_considerada")
             QgsProject.instance().addMapLayer(capa_vegetada) if intermedios else None
-            self.log("--> Creando índices espaciales...") if intermedios else None
+            self.log("--> Extrayendo edificaciones dentro del radio de afectación por bosques...") if intermedios else None
             processing.run("native:createspatialindex", {'INPUT': capa_edif}, feedback=self.feedback)
             processing.run("native:createspatialindex", {'INPUT': capa_vegetada}, feedback=self.feedback)
-            self.log("--> Trazando el radio de afectación por bosques...") if intermedios else None
-            capa_edif_buffer = processing.run("native:buffer", {
-                'INPUT': capa_vegetada,
-                'DISTANCE': 200,
-                'DISSOLVE': True,
-                'OUTPUT': 'TEMPORARY_OUTPUT'
-            }, feedback=self.feedback)['OUTPUT']
-            self.log("--> Seleccionando las edificaciones que intersectan con el radio de afectación...") if intermedios else None
-            capa_edif_afectadas = processing.run("native:extractbylocation", {
+            capa_edif_afectadas = processing.run("native:extractwithindistance", {
                 'INPUT': capa_edif,
-                'PREDICATE': [0],
-                'INTERSECT': capa_edif_buffer,
+                'REFERENCE': capa_vegetada,
+                'DISTANCE': 200,
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
+            if self.cancelado: return
             capa_edif_afectadas.setName("edificaciones_en_zona_afectacion_bosques")
             QgsProject.instance().addMapLayer(capa_edif_afectadas) if intermedios else None
 
             #> 6.2.3. Classificar conjuntos de edificios según el método de Lampin-Maillet et al. (2009):
-            if self.cancelado: return
             self.log("-> Clasificando conjuntos de edificios... (3/x)") if intermedios else None
-            self.log("--> Creando buffers...") if intermedios else None
-            buffers = processing.run("native:buffer", {
+            self.log("--> Calculando centroides de los afectados...") if intermedios else None
+            processing.run("native:createspatialindex", {'INPUT': capa_edif_afectadas}, feedback=self.feedback)
+            centroides_afectados = processing.run("native:centroids", {
                 'INPUT': capa_edif_afectadas,
-                'DISTANCE': 100/2,
-                'DISSOLVE': True,
+                'ALL_PARTS': False,
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
+
+            buffers = processing.run("qgis:executesql", {
+                'INPUT_DATASOURCES': [capa_edif_afectadas],
+                'INPUT_QUERY': """
+                                    SELECT ST_Buffer(geometry, 100/2) AS geometry 
+                                    FROM input1
+                                """,
+                'GEOMETRY_FIELD': 'geometry',
+                'OUTPUT': 'TEMPORARY_OUTPUT'
+            }, feedback=self.feedback)['OUTPUT']
+            if self.cancelado: return
+            buffers_secundarios = processing.run("qgis:executesql", {
+                'INPUT_DATASOURCES': [capa_edif_afectadas],
+                'INPUT_QUERY': """
+                                    SELECT ST_Buffer(geometry, 30/2) AS geometry 
+                                    FROM input1
+                                """,
+                'GEOMETRY_FIELD': 'geometry',
+                'OUTPUT': 'TEMPORARY_OUTPUT'
+            }, feedback=self.feedback)['OUTPUT']
+            if self.cancelado: return
             self.log("--> Contando edificios agrupados") if intermedios else None
+            processing.run("native:createspatialindex", {'INPUT': buffers}, feedback=self.feedback)
             buffers_conteo = processing.run("native:fieldcalculator", {
                 'INPUT': buffers,
                 'FIELD_NAME': 'NUM_EDIF',
@@ -697,7 +725,19 @@ class GeoprocesadorDeIUF:
                 'FORMULA': f"aggregate(layer:='{capa_edif_afectadas.id()}', aggregate:='count', expression:=@id, filter:=intersects($geometry, geometry(@parent)))",
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
-            self.log("--> Aplicando lógica...") if intermedios else None #lógica del estudio del 2009 (SIN TENER EN CUENTA LOS 2 SUBGRUPOS DE 'Viviendas agrupadas')
+            if self.cancelado: return
+            processing.run("native:createspatialindex", {'INPUT': buffers_secundarios}, feedback=self.feedback)
+            buffers_secundarios_conteo = processing.run("native:fieldcalculator", {
+                'INPUT': buffers_secundarios,
+                'FIELD_NAME': 'NUM_EDIF_SEC',
+                'FIELD_TYPE': 0,
+                'NEW_FIELD': True,
+                'FORMULA': f"aggregate(layer:='{capa_edif_afectadas.id()}', aggregate:='count', expression:=@id, filter:=intersects($geometry, geometry(@parent)))",
+                'OUTPUT': 'TEMPORARY_OUTPUT'
+            }, feedback=self.feedback)['OUTPUT']
+            if self.cancelado: return
+            self.log("--> Aplicando lógica...") if intermedios else None #lógica del estudio del 2009
+            processing.run("native:createspatialindex", {'INPUT': buffers_conteo}, feedback=self.feedback)
             buffers_clasificados = processing.run("native:fieldcalculator", {
                 'INPUT': buffers_conteo,
                 'FIELD_NAME': 'TIPO_DE_CONJUNTO',
@@ -713,8 +753,30 @@ class GeoprocesadorDeIUF:
                             """,
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
-            buffers_clasificados.setName("edificaciones_clasificadas")
-            QgsProject.instance().addMapLayer(buffers_clasificados)
+            if self.cancelado: return
+            processing.run("native:createspatialindex", {'INPUT': buffers_secundarios_conteo}, feedback=self.feedback)
+            buffers_secundarios_clasificados = processing.run("native:fieldcalculator", {
+                'INPUT': buffers_conteo,
+                'FIELD_NAME': 'TIPO_DE_CONJUNTO',
+                'FIELD_TYPE': 2,
+                'FIELD_LENGTH': 32,
+                'FORMULA': """
+                                CASE 
+                                    WHEN "NUM_EDIF" >= 2 AND "NUM_EDIF" <= 3 THEN 'Viviendas aisladas'
+                                    WHEN "NUM_EDIF" >= 4 AND "NUM_EDIF" <= 50 THEN 'Viviendas dispersas'
+                                    WHEN "NUM_EDIF" > 50 THEN 'Viviendas agrupadas'
+                                    ELSE 'No clasificado'
+                                END
+                            """,
+                'OUTPUT': 'TEMPORARY_OUTPUT'
+            }, feedback=self.feedback)['OUTPUT']
+            buffers_union = processing.run("native:union", {
+                'INPUT': buffers_clasificados,
+                'OVERLAY': buffers_secundarios_clasificados,
+                'OUTPUT': 'TEMPORARY_OUTPUT'
+            }, feedback=self.feedback)['OUTPUT']
+            buffers_union.setName("edificaciones_clasificadas")
+            QgsProject.instance().addMapLayer(buffers_union)
 
             #> 6.2.4. Rasterizar la capa de vegetación
             self.log("-> Rasterizando capa de vegetación... (4/x)") if intermedios else None
