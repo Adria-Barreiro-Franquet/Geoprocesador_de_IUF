@@ -10,12 +10,11 @@ about=Este plugin de QGIS genera un mapa de IUF según el método escogido.
 tracker=https://github.com/Adria-Barreiro-Franquet/Geoprocesador_de_IUF
 repository=https://github.com/Adria-Barreiro-Franquet/Geoprocesador_de_IUF
 
-hasProcessingProvider=no
+category=Vector
 tags=wui, Wild Urban Interface, IUF, Interficie Urbana Forestal
 homepage=https://github.com/Adria-Barreiro-Franquet/Geoprocesador_de_IUF
-category=Plugins
 icon=icon.png
 experimental=True
 deprecated=False
-category=Vector
+hasProcessingProvider=no
 server=False
