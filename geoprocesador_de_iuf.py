@@ -22,7 +22,7 @@
  ***************************************************************************/
 """
 
-import time, os, processing
+import time, os, subprocess, processing
 from qgis.core import QgsProject, QgsProcessingFeedback, QgsVectorLayer, QgsRasterLayer
 from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication
 from qgis.PyQt.QtGui import QIcon
@@ -800,17 +800,22 @@ class GeoprocesadorDeIUF:
                 'DATA_TYPE': 1,
                 'NODATA': -9999,
                 'OUTPUT': 'TEMPORARY_OUTPUT'
-            }, feedback=self.feedback)['OUTPUT']
+            }, feedback=self.feedback)['OUTPUT'] #pixel=1 --> vegetado
             if self.cancelado: return
             capa_vegetada_raster = QgsRasterLayer(capa_vegetada_raster_path, "vegetacion_considerada_raster")
             QgsProject.instance().addMapLayer(capa_vegetada_raster) if intermedios else None
 
-            """#> 6.2.5. Calcular el AI de la capa vegetada usando FRAGSTATS
+            #> 6.2.5. Calcular el AI de la capa vegetada usando FRAGSTATS
+            self.log("-> Calculando el Aggregation Index de la vegetación usando Fragstats... (5/x)")
             fragstats_path = r"C:\Program Files\Fragstats 4.2\frg_cmd.exe" #Path to FRAGSTATS console executable
-            AI_model_path = r"fragstats\Agregation_Index_Fragstats_Model.fca" #Path to the model that computes AI
+            AI_model_path = r"fragstats\Agregation_Index_Fragstats_Model.fca" #Path to the model that computes AI | Circular moving window of 20 m
+            #gemini!!!
+
+
 
             batchfile_path = os.path.join("fragstats\_temporal", f"Feature_{id}_bachfile_raster.ftb")
             output_class_path = os.path.join("fragstats\_temporal", f"Feature_{id}_AI.class")
+
             with open(batchfile_path, 'w') as file:
                 file.write(f"{capa_vegetada_raster}, x, 999, x, x, 1, x, IDF_GeoTIFF")
             comand = [
@@ -819,8 +824,8 @@ class GeoprocesadorDeIUF:
                 "-b", batchfile_path,
                 "-o", output_class_path
             ]
-            subprocess.run(comand, check=True)"""
-            
+            subprocess.run(comand, check=True)
+
             #> FIN
             self.dlg.progressBar.setValue(100)
             QCoreApplication.processEvents()
