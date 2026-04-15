@@ -646,18 +646,20 @@ class GeoprocesadorDeIUF:
             
             #> 6.2.1. Reclasificar la capa de combustible (siose) en 2 clases (vegetado y no_vegetado):
             self.log("-> Reclasificando los usos del suelo... (1/x)") if intermedios else None
-            processing.run("native:createspatialindex", {'INPUT': capa_comb}, feedback=self.feedback)
-            capa_comb = processing.run("qgis:executesql", {
-                'INPUT_DATASOURCES': [capa_comb],
-                'INPUT_QUERY': f"""
-                                    SELECT *, 
-                                    CASE 
-                                        WHEN ID_COBERTURA_MAX IN ({ids_monte}) THEN 'vegetado' 
-                                        ELSE 'no_vegetado' 
-                                    END AS contenido 
-                                    FROM input1
-                                """,
-                'GEOMETRY_FIELD': 'geometry',
+            self.log("--> Aligerando temporalmente la capa de usos del suelo...")
+            capa_comb = processing.run("native:retainfields", {
+                'INPUT': capa_comb,
+                'FIELDS': ['ID_COBERTURA_MAX'], 
+                'OUTPUT': 'TEMPORARY_OUTPUT'
+            }, feedback=self.feedback)['OUTPUT']
+            if self.cancelado: return
+            self.log("--> Reclasificando...")
+            capa_comb = processing.run("native:fieldcalculator", {
+                'INPUT': capa_comb,
+                'FIELD_NAME': 'contenido',
+                'FIELD_TYPE': 2,
+                'FIELD_LENGTH': 16,
+                'FORMULA': f"if(\"ID_COBERTURA_MAX\" IN ({ids_monte}), 'vegetado', 'no_vegetado')",
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
             if self.cancelado: return
@@ -665,7 +667,6 @@ class GeoprocesadorDeIUF:
             #> 6.2.2. Seleccionar edificaciones dentro de la zona de afectación por bosques:
             self.log("-> Seleccionando edificaciones dentro de la zona de afectación por bosques... (2/x)") if intermedios else None
             self.log("--> Extrayendo solo las partes de la capa de combustible que son vegetadas...") if intermedios else None
-            processing.run("native:createspatialindex", {'INPUT': capa_comb}, feedback=self.feedback)
             capa_vegetada = processing.run("native:extractbyattribute", {
                 'INPUT': capa_comb,
                 'FIELD': 'contenido',
@@ -674,11 +675,22 @@ class GeoprocesadorDeIUF:
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
             if self.cancelado: return
+            self.log("--> Optimizando vegetación...")
+            capa_vegetada = processing.run("native:subdivide", {
+                'INPUT': capa_vegetada,
+                'MAX_VERTICES': 1000,
+                'OUTPUT': 'TEMPORARY_OUTPUT'
+            }, feedback=self.feedback)['OUTPUT']
+            if self.cancelado: return
+            self.log("--> Comprobando geometrias...") if intermedios else None
+            capa_vegetada = processing.run("native:fixgeometries", {
+                'INPUT': capa_vegetada,
+                'OUTPUT': 'TEMPORARY_OUTPUT'
+            }, feedback=self.feedback)['OUTPUT']
+            if self.cancelado: return
             capa_vegetada.setName("vegetacion_considerada")
             QgsProject.instance().addMapLayer(capa_vegetada) if intermedios else None
             self.log("--> Extrayendo edificaciones dentro del radio de afectación por bosques...") if intermedios else None
-            processing.run("native:createspatialindex", {'INPUT': capa_edif}, feedback=self.feedback)
-            processing.run("native:createspatialindex", {'INPUT': capa_vegetada}, feedback=self.feedback)
             capa_edif_afectadas = processing.run("native:extractwithindistance", {
                 'INPUT': capa_edif,
                 'REFERENCE': capa_vegetada,
@@ -686,13 +698,13 @@ class GeoprocesadorDeIUF:
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
             if self.cancelado: return
+            processing.run("native:createspatialindex", {'INPUT': capa_edif_afectadas}, feedback=self.feedback)
             capa_edif_afectadas.setName("edificaciones_en_zona_afectacion_bosques")
             QgsProject.instance().addMapLayer(capa_edif_afectadas) if intermedios else None
 
             #> 6.2.3. Classificar conjuntos de edificios según el método de Lampin-Maillet et al. (2009):
             self.log("-> Clasificando conjuntos de edificios... (3/x)") if intermedios else None
             self.log("--> Calculando centroides de los afectados...") if intermedios else None
-            processing.run("native:createspatialindex", {'INPUT': capa_edif_afectadas}, feedback=self.feedback)
             centroides_afectados = processing.run("native:centroids", {
                 'INPUT': capa_edif_afectadas,
                 'ALL_PARTS': False,
