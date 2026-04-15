@@ -332,7 +332,7 @@ class GeoprocesadorDeIUF:
             #> 6.1.3. Calcular la densidad de edificaciones en cada celda de la cuadricula (edificios / km^2):
             self.log("-> Calculando densidad de edificaciones en cada celda... (3/13)") if intermedios else None
             self.log("--> Contando...") if intermedios else None
-            capa_cuadricula_conteo = processing.run("native:countpointsinpolygon", {
+            capa_cuadricula = processing.run("native:countpointsinpolygon", {
                 'POLYGONS': capa_cuadricula,
                 'POINTS': capa_centroides,
                 'FIELD': 'edificios',
@@ -341,7 +341,7 @@ class GeoprocesadorDeIUF:
             if self.cancelado: return
             self.log("--> Calculando...") if intermedios else None
             capa_cuadricula = processing.run("native:fieldcalculator", {
-                'INPUT': capa_cuadricula_conteo,
+                'INPUT': capa_cuadricula,
                 'FIELD_NAME': 'densidad',
                 'FIELD_TYPE': 0,
                 'FIELD_LENGTH': 10,
@@ -375,17 +375,20 @@ class GeoprocesadorDeIUF:
             
             #> 6.1.5. Reclasificar la capa de combustible (siose) en 2 clases (vegetado y no_vegetado):
             self.log("-> Reclasificando los usos del suelo... (5/13)") if intermedios else None
-            capa_comb = processing.run("qgis:executesql", {
-                'INPUT_DATASOURCES': [capa_comb],
-                'INPUT_QUERY': f"""
-                                    SELECT *, 
-                                    CASE 
-                                        WHEN ID_COBERTURA_MAX IN ({ids_monte}) THEN 'vegetado' 
-                                        ELSE 'no_vegetado' 
-                                    END AS contenido 
-                                    FROM input1
-                                """,
-                'GEOMETRY_FIELD': 'geometry',
+            self.log("--> Aligerando temporalmente la capa de usos del suelo...")
+            capa_comb = processing.run("native:retainfields", {
+                'INPUT': capa_comb,
+                'FIELDS': ['ID_COBERTURA_MAX'], 
+                'OUTPUT': 'TEMPORARY_OUTPUT'
+            }, feedback=self.feedback)['OUTPUT']
+            if self.cancelado: return
+            self.log("--> Reclasificando...")
+            capa_comb = processing.run("native:fieldcalculator", {
+                'INPUT': capa_comb,
+                'FIELD_NAME': 'contenido',
+                'FIELD_TYPE': 2,
+                'FIELD_LENGTH': 16,
+                'FORMULA': f"if(\"ID_COBERTURA_MAX\" IN ({ids_monte}), 'vegetado', 'no_vegetado')",
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
             if self.cancelado: return
@@ -415,19 +418,19 @@ class GeoprocesadorDeIUF:
             }, feedback=self.feedback)['OUTPUT']
             if self.cancelado: return
             self.log("--> Intersectando la capa de vegetado con la cuadrícula...") if intermedios else None
-            capa_cuadricula_overlap = processing.run("native:calculatevectoroverlaps", {
+            capa_cuadricula = processing.run("native:calculatevectoroverlaps", {
                 'INPUT': capa_cuadricula,
                 'LAYERS': [capa_vegetada],
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
             if self.cancelado: return
             self.log("--> Determinando el contenido mayoritario en cada celda...") if intermedios else None
-            for f in capa_cuadricula_overlap.fields():
+            for f in capa_cuadricula.fields():
                 if f.name().endswith('_pc'):
                     nombre_campo_pc = f.name()
                     break
             capa_cuadricula = processing.run("native:fieldcalculator", {
-                'INPUT': capa_cuadricula_overlap,
+                'INPUT': capa_cuadricula,
                 'FIELD_NAME': 'contenido_predominante',
                 'FIELD_TYPE': 2,
                 'FIELD_LENGTH': 16,
@@ -456,7 +459,6 @@ class GeoprocesadorDeIUF:
             self.log("--> Disolviendo...") if intermedios else None
             capa_vegetada = processing.run("native:dissolve", {
                 'INPUT': capa_vegetada,
-                'FIELD': [],
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
             if self.cancelado: return
@@ -476,60 +478,59 @@ class GeoprocesadorDeIUF:
                 'EXPRESSION': '$area > 5000000', #5 km^2 = 5000000 m^2
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
+            processing.run("native:createspatialindex", {'INPUT': capa_montes}, feedback=self.feedback)
             if self.cancelado: return
             capa_montes.setName("montes_mayores_5km2")
             QgsProject.instance().addMapLayer(capa_montes) if intermedios else None
 
             #> 6.1.9. Calcular el radio de afectación por pavesas (embers)
             self.log("-> Calculando el radio de afectación por pavesas... (9/13)") if intermedios else None
-            buffer_pavesas = processing.run("native:buffer", {
+            capa_buffer_pavesas = processing.run("native:buffer", {
                 'INPUT': capa_montes,
-                'DISTANCE': 2000, #según Alcassena et al., el radio de afectación por pavesas es de 2 km | se modifica a 500m
+                'DISTANCE': 2000, #según Alcassena et al., el radio de afectación por pavesas es de 2 km
                 'DISSOLVE': True,
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
+            processing.run("native:createspatialindex", {'INPUT': capa_buffer_pavesas}, feedback=self.feedback)
             if self.cancelado: return
-            buffer_pavesas.setName("radio_afectacion_pavesas")
-            QgsProject.instance().addMapLayer(buffer_pavesas) if intermedios else None
+            capa_buffer_pavesas.setName("radio_afectacion_pavesas")
+            QgsProject.instance().addMapLayer(capa_buffer_pavesas) if intermedios else None
 
             #> 6.1.10. Añadir a cada celda de la cuadrícula la información de si intersecta o no con el radio de afectación por pavesas:
             self.log("-> Añadiendo información de intersección con el radio de afectación... (10/13)") if intermedios else None
             self.log("--> Preparando el cruce espacial...") if intermedios else None
-            buffer_marcado = processing.run("native:fieldcalculator", {
-                'INPUT': buffer_pavesas,
+            capa_buffer_pavesas = processing.run("native:fieldcalculator", {
+                'INPUT': capa_buffer_pavesas,
                 'FIELD_NAME': 'marca_temp',
-                'FIELD_TYPE': 2,
-                'FIELD_LENGTH': 2,
+                'FIELD_TYPE': 6,
                 'NEW_FIELD': True,
-                'FORMULA': "'1'",
+                'FORMULA': True,
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
             if self.cancelado: return
             self.log("--> Cruzando cuadrícula con zona de pavesas...") if intermedios else None
-            cuadricula_join = processing.run("native:joinattributesbylocation", {
+            capa_cuadricula = processing.run("native:joinattributesbylocation", {
                 'INPUT': capa_cuadricula,
-                'JOIN': buffer_marcado,
-                'PREDICATE': [0],
+                'JOIN': capa_buffer_pavesas,
                 'JOIN_FIELDS': ['marca_temp'],
                 'METHOD': 0,
                 'DISCARD_NONMATCHING': False,
-                'PREFIX': '',
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
             if self.cancelado: return
             self.log("--> Evaluando resultados...") if intermedios else None
-            capa_cuadricula_sino = processing.run("native:fieldcalculator", {
-                'INPUT': cuadricula_join,
+            capa_cuadricula = processing.run("native:fieldcalculator", {
+                'INPUT': capa_cuadricula,
                 'FIELD_NAME': 'interseccion_pavesas',
                 'FIELD_TYPE': 2,
-                'FIELD_LENGTH': 10,
+                'FIELD_LENGTH': 4,
                 'NEW_FIELD': True,
-                'FORMULA': "IF(\"marca_temp\" = '1', 'sí', 'no')",
+                'FORMULA': "IF(\"marca_temp\" = True, 'sí', 'no')",
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
             if self.cancelado: return
             capa_cuadricula = processing.run("native:deletecolumn", {
-                'INPUT': capa_cuadricula_sino,
+                'INPUT': capa_cuadricula,
                 'COLUMN': ['marca_temp'],
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
@@ -576,6 +577,7 @@ class GeoprocesadorDeIUF:
                 """,
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
+            processing.run("native:createspatialindex", {'INPUT': capa_resultado}, feedback=self.feedback)
             if self.cancelado: return
 
             #> 6.1.12. Rellenar celdas vacías según el tipo de IUF más común entre sus vecinas:
@@ -596,7 +598,7 @@ class GeoprocesadorDeIUF:
                                                 array_first(
                                                     array_majority(
                                                         array_remove_all(
-                                                            overlay_touches(@layer, "clase_IUF"), 
+                                                            overlay_intersects(@layer, "clase_IUF"),
                                                             'No clasificado'
                                                         )
                                                     )
@@ -613,7 +615,7 @@ class GeoprocesadorDeIUF:
             #> 6.1.13. Eliminar celdas que no se han podido clasificar y disolver las que sí:
             self.log("-> Eliminando y disolviendo celdas... (13/13)") if intermedios else None
             self.log("--> Extrayendo solo las celdas clasificadas...") if intermedios else None
-            capa_resultado_clasificado = processing.run("native:extractbyexpression", {
+            capa_resultado = processing.run("native:extractbyexpression", {
                 'INPUT': capa_resultado,
                 'EXPRESSION': '"clase_IUF" != \'No clasificado\'',
                 'OUTPUT': 'TEMPORARY_OUTPUT'
@@ -621,13 +623,13 @@ class GeoprocesadorDeIUF:
             if self.cancelado: return
             self.log("--> Disolviendo por clase de IUF...") if intermedios else None
             path_final = processing.run("native:dissolve", {
-                'INPUT': capa_resultado_clasificado,
+                'INPUT': capa_resultado,
                 'FIELD': 'clase_IUF',
                 'OUTPUT': ruta_salida
             }, feedback=self.feedback)['OUTPUT']
             if self.cancelado: return
             capa_final = QgsVectorLayer(path_final, "Mapa_IUF_Final", "ogr")
-            processing.run("native:createspatialindex", {'INPUT': capa_final}, feedback=self.feedback) #crear índice espacial en la capa final para mejorar el rendimiento al cargarla en el proyecto
+            processing.run("native:createspatialindex", {'INPUT': capa_final}, feedback=self.feedback)
             QgsProject.instance().addMapLayer(capa_final)
 
             #> FIN
