@@ -20,12 +20,13 @@ Para que el plugin funcione correctamente, se requieren las siguientes capas en 
 * **Edificaciones**: Polígonos de todo aquello que se tenga en cuenta como edificación.
 * **Uso del suelo**: Clasificación de usos del suelo según los estándares del SIOSE AR 2017. *(Es necesario contar con un equipo de más del doble del peso de esta capa en capacidad de RAM)*
 
----
-
 ## INSTALACIÓN
-1.  Copiar la carpeta del plugin en la ruta de plugins de QGIS:
+1.  Descargar y descomprimir el .zip del proyecto.
+2.  Copiar la carpeta del plugin en la ruta de plugins de QGIS:
     `C:\Users\TU_USUARIO\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins`
-2.  Activar el plugin desde el **Administrador de Complementos** en QGIS.
+3.  Entrar en la carpeta del plugin y ejecutar `...\plugins\Geoprocesador_de_IUF\fragstats\fragstats version 4.2.681[x64] INSTALLER.exe`,
+    esto instalará software indispensable para ejecutar el plugin, dejar todo por defecto.
+4.  Abrir QGIS y activar el plugin desde el **Administrador de Complementos**.
 
 ---
 
