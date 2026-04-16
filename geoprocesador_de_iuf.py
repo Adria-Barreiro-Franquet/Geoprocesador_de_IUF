@@ -806,8 +806,28 @@ class GeoprocesadorDeIUF:
             #> 6.2.5. Calcular el AI de la capa vegetada usando FRAGSTATS
             self.log("-> Calculando el Aggregation Index de la vegetación usando Fragstats... (5/x)")
             fragstats_path = r"C:\Program Files\Fragstats 4.2\frg_cmd.exe" #Path to FRAGSTATS console executable
+            if os.path.exists(fragstats_path):
+                self.log("ERROR: No se encuentra el ejecutable de Fragstats en C:\Program Files\Fragstats 4.2\\")
+                return
             AI_model_path = r"fragstats\Agregation_Index_Fragstats_Model.fca" #Path to the model that computes AI | Circular moving window of 20 m
-            #gemini!!!
+            self.log("Ejecutando Fragstats en segundo plano...")
+            comand = [
+                fragstats_path,
+                "-m", AI_model_path,
+                "-b", batchfile_path,
+                "-o", output_class_path
+            ]
+            subprocess.run(comand, check=True)
+
+
+
+            proceso = subprocess.run(
+                [fragstats_path,AI_model_path],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+
 
 
 
@@ -816,13 +836,6 @@ class GeoprocesadorDeIUF:
 
             with open(batchfile_path, 'w') as file:
                 file.write(f"{capa_vegetada_raster}, x, 999, x, x, 1, x, IDF_GeoTIFF")
-            comand = [
-                fragstats_path,
-                "-m", AI_model_path,
-                "-b", batchfile_path,
-                "-o", output_class_path
-            ]
-            subprocess.run(comand, check=True)
 
             #> FIN
             self.dlg.progressBar.setValue(100)
