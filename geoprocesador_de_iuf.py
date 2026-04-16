@@ -22,7 +22,7 @@
  ***************************************************************************/
 """
 
-import time, os, subprocess, processing
+import time, os, subprocess, processing, csv
 from qgis.core import QgsProject, QgsProcessingFeedback, QgsVectorLayer, QgsRasterLayer
 from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication
 from qgis.PyQt.QtGui import QIcon
@@ -289,21 +289,28 @@ class GeoprocesadorDeIUF:
 
         self.log("----------------------------------------------------------------")
 
+        processing.run("native:createspatialindex", {'INPUT': capa_edif}, feedback=self.feedback)
+        processing.run("native:createspatialindex", {'INPUT': capa_comb}, feedback=self.feedback)
+
+        self.log("Aligerando temporalmente las capas de entrada...")
+        capa_edif = processing.run("native:retainfields", {
+            'INPUT': capa_edif,
+            'FIELDS': ['id'], 
+            'OUTPUT': 'TEMPORARY_OUTPUT'
+        }, feedback=self.feedback)['OUTPUT']
+        if self.cancelado: return
+        capa_comb = processing.run("native:retainfields", {
+            'INPUT': capa_comb,
+            'FIELDS': ['ID_COBERTURA_MAX'], 
+            'OUTPUT': 'TEMPORARY_OUTPUT'
+        }, feedback=self.feedback)['OUTPUT']
+        if self.cancelado: return
+
         #> 6.1. MÉTODO ALCASENA
         if metodo == "Alcassena et al.":
 
-            processing.run("native:createspatialindex", {'INPUT': capa_edif}, feedback=self.feedback)
-            processing.run("native:createspatialindex", {'INPUT': capa_comb}, feedback=self.feedback)
-
             #> 6.1.1. Calcular el centroide de cada edificio:
             self.log("-> Calculando centroides de las edificaciones... (1/13)") if intermedios else None
-            self.log("--> Aligerando temporalmente la capa de edificaciones...")
-            capa_edif = processing.run("native:retainfields", {
-                'INPUT': capa_edif,
-                'FIELDS': ['id'], 
-                'OUTPUT': 'TEMPORARY_OUTPUT'
-            }, feedback=self.feedback)['OUTPUT']
-            if self.cancelado: return
             self.log("--> Calculando centroides...")
             capa_centroides = processing.run("native:centroids", {
                 'INPUT': capa_edif,
@@ -375,13 +382,6 @@ class GeoprocesadorDeIUF:
             
             #> 6.1.5. Reclasificar la capa de combustible (siose) en 2 clases (vegetado y no_vegetado):
             self.log("-> Reclasificando los usos del suelo... (5/13)") if intermedios else None
-            self.log("--> Aligerando temporalmente la capa de usos del suelo...")
-            capa_comb = processing.run("native:retainfields", {
-                'INPUT': capa_comb,
-                'FIELDS': ['ID_COBERTURA_MAX'], 
-                'OUTPUT': 'TEMPORARY_OUTPUT'
-            }, feedback=self.feedback)['OUTPUT']
-            if self.cancelado: return
             self.log("--> Reclasificando...")
             capa_comb = processing.run("native:fieldcalculator", {
                 'INPUT': capa_comb,
@@ -641,13 +641,6 @@ class GeoprocesadorDeIUF:
             
             #> 6.2.1. Reclasificar la capa de combustible (siose) en 2 clases (vegetado y no_vegetado):
             self.log("-> Reclasificando los usos del suelo... (1/x)") if intermedios else None
-            self.log("--> Aligerando temporalmente la capa de usos del suelo...")
-            capa_comb = processing.run("native:retainfields", {
-                'INPUT': capa_comb,
-                'FIELDS': ['ID_COBERTURA_MAX'], 
-                'OUTPUT': 'TEMPORARY_OUTPUT'
-            }, feedback=self.feedback)['OUTPUT']
-            if self.cancelado: return
             self.log("--> Reclasificando...")
             capa_comb = processing.run("native:fieldcalculator", {
                 'INPUT': capa_comb,
@@ -687,10 +680,20 @@ class GeoprocesadorDeIUF:
             capa_vegetada.setName("vegetacion_considerada")
             QgsProject.instance().addMapLayer(capa_vegetada) if intermedios else None
             self.log("--> Extrayendo edificaciones dentro del radio de afectación por bosques...") if intermedios else None
-            capa_edif_afectadas = processing.run("native:extractwithindistance", {
-                'INPUT': capa_edif,
-                'REFERENCE': capa_vegetada,
+            radio_afectacion_bosques = processing.run("native:buffer", {
+                'INPUT': capa_vegetada,
                 'DISTANCE': 200,
+                'DISSOLVE': True,
+                'OUTPUT': 'TEMPORARY_OUTPUT'
+            }, feedback=self.feedback)['OUTPUT']
+            processing.run("native:createspatialindex", {'INPUT': radio_afectacion_bosques}, feedback=self.feedback)
+            if self.cancelado: return
+            radio_afectacion_bosques.setName("radio_de_afectacion_bosques")
+            QgsProject.instance().addMapLayer(radio_afectacion_bosques) if intermedios else None
+            capa_edif_afectadas = processing.run("native:extractbylocation", {
+                'INPUT': capa_edif,
+                'PREDICATE': [0],
+                'INTERSECT': radio_afectacion_bosques,
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
             if self.cancelado: return
@@ -800,42 +803,34 @@ class GeoprocesadorDeIUF:
             }, feedback=self.feedback)['OUTPUT']
             if self.cancelado: return
             capa_vegetada_raster = QgsRasterLayer(capa_vegetada_raster_path, "vegetacion_considerada_raster")
-            processing.run("native:createspatialindex", {'INPUT': capa_vegetada_raster}, feedback=self.feedback)
             QgsProject.instance().addMapLayer(capa_vegetada_raster) if intermedios else None
             
             #> 6.2.5. Calcular el AI de la capa vegetada usando FRAGSTATS
             self.log("-> Calculando el Aggregation Index de la vegetación usando Fragstats... (5/x)")
             fragstats_path = r"C:\Program Files\Fragstats 4.2\frg_cmd.exe" #Path to FRAGSTATS console executable
-            if os.path.exists(fragstats_path):
+            if not os.path.exists(fragstats_path):
                 self.log("ERROR: No se encuentra el ejecutable de Fragstats en C:\Program Files\Fragstats 4.2\\")
                 return
             AI_model_path = r"fragstats\Agregation_Index_Fragstats_Model.fca" #Path to the model that computes AI | Circular moving window of 20 m
-            self.log("Ejecutando Fragstats en segundo plano...")
+            with open(r"fragstats\_temporal\vegetacion_AI_bachfile.ftb", 'w') as file:
+                file.write(f"{capa_vegetada_raster_path}, x, x, x, x")
+            self.log("--> Ejecutando Fragstats en segundo plano...")
             comand = [
                 fragstats_path,
                 "-m", AI_model_path,
-                "-b", batchfile_path,
-                "-o", output_class_path
+                "-b", r"fragstats\_temporal\vegetacion_AI_bachfile.ftb",
+                "-o", r"fragstats\_temporal\vegetacion_AI"
             ]
-            subprocess.run(comand, check=True)
-
-
-
-            proceso = subprocess.run(
-                [fragstats_path,AI_model_path],
-                capture_output=True,
-                text=True,
-                check=True
-            )
-
-
-
-
-            batchfile_path = os.path.join("fragstats\_temporal", f"Feature_{id}_bachfile_raster.ftb")
-            output_class_path = os.path.join("fragstats\_temporal", f"Feature_{id}_AI.class")
-
-            with open(batchfile_path, 'w') as file:
-                file.write(f"{capa_vegetada_raster}, x, 999, x, x, 1, x, IDF_GeoTIFF")
+            subprocess.run(comand, capture_output=True, text=True, check=True)
+            self.log("--> Obteniendo resultados...")
+            with open(r"fragstats\_temporal\vegetacion_AI.class", 'r') as f:
+                lector_csv = csv.DictReader(f)
+                for fila in lector_csv:
+                    if 'AI' in fila:
+                        valor_AI = float(fila['AI'])
+                        break
+            self.log("--> Creando raster temporal...")
+            
 
             #> FIN
             self.dlg.progressBar.setValue(100)
