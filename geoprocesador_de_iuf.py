@@ -459,13 +459,8 @@ class GeoprocesadorDeIUF:
             self.log("--> Disolviendo...") if intermedios else None
             capa_vegetada = processing.run("native:dissolve", {
                 'INPUT': capa_vegetada,
-                'OUTPUT': 'TEMPORARY_OUTPUT'
-            }, feedback=self.feedback)['OUTPUT']
-            if self.cancelado: return
-            self.log("--> Combinando...") if intermedios else None
-            capa_vegetada = processing.run("native:multiparttosingleparts", {
-                'INPUT': capa_vegetada,
-                'OUTPUT': 'TEMPORARY_OUTPUT'
+                'OUTPUT': 'TEMPORARY_OUTPUT',
+                'SEPARATE_DISJOINT': True
             }, feedback=self.feedback)['OUTPUT']
             if self.cancelado: return
             capa_vegetada.setName("vegetacion_considerada")
@@ -674,6 +669,7 @@ class GeoprocesadorDeIUF:
                 'VALUE': 'vegetado',
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
+            processing.run("native:createspatialindex", {'INPUT': capa_vegetada}, feedback=self.feedback)
             if self.cancelado: return
             self.log("--> Optimizando vegetación...")
             capa_vegetada = processing.run("native:subdivide", {
@@ -710,56 +706,45 @@ class GeoprocesadorDeIUF:
                 'ALL_PARTS': False,
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
+            processing.run("native:createspatialindex", {'INPUT': centroides_afectados}, feedback=self.feedback)
             if self.cancelado: return
-            self.log("--> Calculando buffers") #disueltos
-            clusters_principales = processing.run("qgis:executesql", {
-                'INPUT_DATASOURCES': [capa_edif_afectadas],
-                'INPUT_QUERY': "SELECT ST_UnaryUnion(ST_Collect(ST_Buffer(geometry, 50))) AS geometry FROM input1",
-                'GEOMETRY_FIELD': 'geometry',
-                'OUTPUT': 'TEMPORARY_OUTPUT'
-            }, feedback=self.feedback)['OUTPUT'] #50=100/2
-            if self.cancelado: return
-            clusters_secundarios = processing.run("qgis:executesql", {
-                'INPUT_DATASOURCES': [capa_edif_afectadas],
-                'INPUT_QUERY': "SELECT ST_UnaryUnion(ST_Collect(ST_Buffer(geometry, 15))) AS geometry FROM input1",
-                'GEOMETRY_FIELD': 'geometry',
-                'OUTPUT': 'TEMPORARY_OUTPUT'
-            }, feedback=self.feedback)['OUTPUT'] #15=30/2
-            if self.cancelado: return
+            self.log("--> Calculando buffers")
+            clusters_principales = processing.run("native:buffer", {
+                'INPUT': capa_edif_afectadas,
+                'DISTANCE': 100/2,
+                'DISSOLVE': True,
+                'OUTPUT': 'TEMPORARY_OUTPUT',
+                'SEPARATE_DISJOINT': True
+            }, feedback=self.feedback)['OUTPUT']
             processing.run("native:createspatialindex", {'INPUT': clusters_principales}, feedback=self.feedback)
-            clusters_principales = processing.run("native:multiparttosingleparts", {
-                'INPUT': clusters_principales,
-                'OUTPUT': 'TEMPORARY_OUTPUT'
-            }, feedback=self.feedback)['OUTPUT']
             if self.cancelado: return
-            processing.run("native:createspatialindex", {'INPUT': clusters_secundarios}, feedback=self.feedback)
-            clusters_secundarios = processing.run("native:multiparttosingleparts", {
-                'INPUT': clusters_secundarios,
-                'OUTPUT': 'TEMPORARY_OUTPUT'
+            clusters_secundarios = processing.run("native:buffer", {
+                'INPUT': capa_edif_afectadas,
+                'DISTANCE': 30/2,
+                'DISSOLVE': True,
+                'OUTPUT': 'TEMPORARY_OUTPUT',
+                'SEPARATE_DISJOINT': True
             }, feedback=self.feedback)['OUTPUT']
+            processing.run("native:createspatialindex", {'INPUT': clusters_secundarios}, feedback=self.feedback)
             if self.cancelado: return
             self.log("--> Contando edificios agrupados") if intermedios else None
-            processing.run("native:createspatialindex", {'INPUT': clusters_principales}, feedback=self.feedback)
-            processing.run("native:createspatialindex", {'INPUT': centroides_afectados}, feedback=self.feedback)
-            clusters_principales_conteo =processing.run("native:countpointsinpolygon", {
+            clusters_principales =processing.run("native:countpointsinpolygon", {
                 'POLYGONS': clusters_principales,
                 'POINTS': centroides_afectados,
                 'FIELD': 'NUM_EDIF',
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
             if self.cancelado: return
-            processing.run("native:createspatialindex", {'INPUT': clusters_secundarios}, feedback=self.feedback)
-            clusters_secundarios_conteo =processing.run("native:countpointsinpolygon", {
+            clusters_secundarios =processing.run("native:countpointsinpolygon", {
                 'POLYGONS': clusters_secundarios,
                 'POINTS': centroides_afectados,
                 'FIELD': 'NUM_EDIF_SEC',
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
             if self.cancelado: return
-            self.log("--> Aplicando lógica...") if intermedios else None #lógica del estudio del 2009
-            processing.run("native:createspatialindex", {'INPUT': clusters_principales_conteo}, feedback=self.feedback)
-            clusters_principales_clasif = processing.run("native:fieldcalculator", {
-                'INPUT': clusters_principales_conteo,
+            self.log("--> Aplicando lógica...") if intermedios else None #lógica del estudio del 2009 | paper: https://scispace.com/papers/characterization-and-mapping-of-dwelling-types-for-forest-4dnifq3nd7
+            clusters_principales = processing.run("native:fieldcalculator", {
+                'INPUT': clusters_principales,
                 'FIELD_NAME': 'TIPO_DE_CONJUNTO',
                 'FIELD_TYPE': 2,
                 'FIELD_LENGTH': 32,
@@ -772,11 +757,10 @@ class GeoprocesadorDeIUF:
                     END
                 """,
                 'OUTPUT': 'TEMPORARY_OUTPUT'
-            }, feedback=self.feedback)['OUTPUT'] #No clasificado --> Solo 1 edificación
+            }, feedback=self.feedback)['OUTPUT'] #No clasificado --> Solo 1 edificación o error
             if self.cancelado: return
-            processing.run("native:createspatialindex", {'INPUT': clusters_secundarios_conteo}, feedback=self.feedback)
-            clusters_secundarios_clasif = processing.run("native:fieldcalculator", {
-                'INPUT': clusters_secundarios_conteo,
+            clusters_secundarios = processing.run("native:fieldcalculator", {
+                'INPUT': clusters_secundarios,
                 'FIELD_NAME': 'SUBTIPO_DE_CONJUNTO',
                 'FIELD_TYPE': 2,
                 'FIELD_LENGTH': 32,
@@ -791,13 +775,12 @@ class GeoprocesadorDeIUF:
             }, feedback=self.feedback)['OUTPUT']
             if self.cancelado: return
             self.log("--> Uniendo resultados...") if intermedios else None
-            processing.run("native:createspatialindex", {'INPUT': clusters_principales_clasif}, feedback=self.feedback)
-            processing.run("native:createspatialindex", {'INPUT': clusters_secundarios_clasif}, feedback=self.feedback)
             buffers_union =processing.run("native:union", {
-                'INPUT': clusters_principales_clasif,
-                'OVERLAY': clusters_secundarios_clasif,
+                'INPUT': clusters_principales,
+                'OVERLAY': clusters_secundarios,
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
+            processing.run("native:createspatialindex", {'INPUT': buffers_union}, feedback=self.feedback)
             if self.cancelado: return
             buffers_union.setName("conjuntos_de_edificaciones_clasificadas")
             QgsProject.instance().addMapLayer(buffers_union) if intermedios else None
@@ -805,23 +788,21 @@ class GeoprocesadorDeIUF:
             #> 6.2.4. Rasterizar la capa de vegetación
             self.log("-> Rasterizando capa de vegetación... (4/x)") if intermedios else None
             resolucion = 5 #valor totalmente dependiente del entorno de ejecución.
-            extension = capa_vegetada.extent()
-            ext_str = f"{extension.xMinimum()},{extension.xMaximum()},{extension.yMinimum()},{extension.yMaximum()}"
             capa_vegetada_raster_path = processing.run("gdal:rasterize", {
                 'INPUT': capa_vegetada,
-                'BURN': 1,
-                'UNITS': 1,
+                'BURN': 1, #pixel=1 --> vegetado
+                'UNITS': 1, #raster will have georeferenced units
                 'WIDTH': resolucion,
                 'HEIGHT': resolucion,
-                'EXTENT': ext_str,
                 'DATA_TYPE': 1,
                 'NODATA': -9999,
                 'OUTPUT': 'TEMPORARY_OUTPUT'
-            }, feedback=self.feedback)['OUTPUT'] #pixel=1 --> vegetado
+            }, feedback=self.feedback)['OUTPUT']
             if self.cancelado: return
             capa_vegetada_raster = QgsRasterLayer(capa_vegetada_raster_path, "vegetacion_considerada_raster")
+            processing.run("native:createspatialindex", {'INPUT': capa_vegetada_raster}, feedback=self.feedback)
             QgsProject.instance().addMapLayer(capa_vegetada_raster) if intermedios else None
-
+            
             #> 6.2.5. Calcular el AI de la capa vegetada usando FRAGSTATS
             self.log("-> Calculando el Aggregation Index de la vegetación usando Fragstats... (5/x)")
             fragstats_path = r"C:\Program Files\Fragstats 4.2\frg_cmd.exe" #Path to FRAGSTATS console executable
