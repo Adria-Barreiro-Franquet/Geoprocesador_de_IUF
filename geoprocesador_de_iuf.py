@@ -807,28 +807,36 @@ class GeoprocesadorDeIUF:
             
             #> 6.2.5. Calcular el AI de la capa vegetada usando FRAGSTATS
             self.log("-> Calculando el Aggregation Index de la vegetación usando Fragstats... (5/x)")
-            fragstats_path = r"C:\Program Files\Fragstats 4.2\frg_cmd.exe" #Path to FRAGSTATS console executable
-            if not os.path.exists(fragstats_path):
+            fragstats_console_path = r"C:\Program Files\Fragstats 4.2\frg_cmd.exe" #Path to FRAGSTATS console executable
+            if not os.path.exists(fragstats_console_path):
                 self.log("ERROR: No se encuentra el ejecutable de Fragstats en C:\Program Files\Fragstats 4.2\\")
                 return
-            AI_model_path = r"fragstats\Agregation_Index_Fragstats_Model.fca" #Path to the model that computes AI | Circular moving window of 20 m
-            with open(r"fragstats\_temporal\vegetacion_AI_bachfile.ftb", 'w') as file:
+            dir_path = os.path.dirname(__file__) #directory of this file
+            dir_fragstats = os.path.join(dir_path, "fragstats")
+            dir_temporal = os.path.join(dir_fragstats, "_temporal")
+            AI_model_path = os.path.join(dir_fragstats, "Agregation_Index_Fragstats_Model.fca") #Path to the model that computes AI | Circular moving window of 20 m
+            batch_file_path = os.path.join(dir_temporal, "vegetacion_AI_bachfile.fbt")
+            output_base_path = os.path.join(dir_temporal, "vegetacion_AI")
+            archivo_resultados = f"{output_base_path}.class"
+            with open(batch_file_path, 'w') as file:
                 file.write(f"{capa_vegetada_raster_path}, x, x, x, x")
             self.log("--> Ejecutando Fragstats en segundo plano...")
             comand = [
-                fragstats_path,
-                "-m", AI_model_path,
-                "-b", r"fragstats\_temporal\vegetacion_AI_bachfile.ftb",
-                "-o", r"fragstats\_temporal\vegetacion_AI"
+                fragstats_console_path,
+                "-m", os.path.normpath(AI_model_path),
+                "-b", os.path.normpath(batch_file_path),
+                "-o", os.path.normpath(output_base_path)
             ]
             subprocess.run(comand, capture_output=True, text=True, check=True)
             self.log("--> Obteniendo resultados...")
-            with open(r"fragstats\_temporal\vegetacion_AI.class", 'r') as f:
+            with open(archivo_resultados, 'r') as f:
                 lector_csv = csv.DictReader(f)
                 for fila in lector_csv:
                     if 'AI' in fila:
                         valor_AI = float(fila['AI'])
                         break
+            self.log("--> Limpiando directorio temporal...")
+            subprocess.run(['del', '/Q', f'{dir_temporal}\\*'], shell=True)
             self.log("--> Creando raster temporal...")
             
 
