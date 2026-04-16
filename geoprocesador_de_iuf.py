@@ -805,7 +805,7 @@ class GeoprocesadorDeIUF:
             capa_vegetada_raster = QgsRasterLayer(capa_vegetada_raster_path, "vegetacion_considerada_raster")
             QgsProject.instance().addMapLayer(capa_vegetada_raster) if intermedios else None
             
-            #> 6.2.5. Calcular el AI de la capa vegetada usando FRAGSTATS
+            #> 6.2.5. Calcular el AI de la capa vegetada usando FRAGSTATS ###########aquiiiiiii######################################################
             self.log("-> Calculando el Aggregation Index de la vegetación usando Fragstats... (5/x)")
             fragstats_console_path = r"C:\Program Files\Fragstats 4.2\frg_cmd.exe" #Path to FRAGSTATS console executable
             if not os.path.exists(fragstats_console_path):
@@ -816,10 +816,10 @@ class GeoprocesadorDeIUF:
             dir_temporal = os.path.join(dir_fragstats, "_temporal")
             AI_model_path = os.path.join(dir_fragstats, "Agregation_Index_Fragstats_Model.fca") #Path to the model that computes AI | Circular moving window of 20 m
             batch_file_path = os.path.join(dir_temporal, "vegetacion_AI_bachfile.fbt")
-            output_base_path = os.path.join(dir_temporal, "vegetacion_AI.class")
+            output_base_path = os.path.join(dir_temporal, "vegetacion_AI")
             with open(batch_file_path, 'w') as file:
-                file.write(f'{os.path.normpath(capa_vegetada_raster_path)}, x, -9999, x, x, 1, x, IDF_GeoTIFF')
-            self.log("--> Ejecutando Fragstats en segundo plano NO TOQUE NADA...")
+                file.write(f'{os.path.normpath(capa_vegetada_raster_path)}, x, 999, x, x, 1, x, IDF_GeoTIFF')
+            self.log("--> Ejecutando Fragstats en segundo plano, NO TOQUE NADA...")
             comand = [
                 fragstats_console_path,
                 "-m", os.path.normpath(AI_model_path),
@@ -828,7 +828,7 @@ class GeoprocesadorDeIUF:
             ]
             subprocess.run(comand, capture_output=True, text=True, check=True)
             self.log("--> Hecho, obteniendo resultados...")
-            with open(os.path.normpath(output_base_path), 'r') as f:
+            with open(f"{os.path.normpath(output_base_path)}.class", 'r') as f:
                 lector_csv = csv.DictReader(f)
                 for fila in lector_csv:
                     if 'AI' in fila:
