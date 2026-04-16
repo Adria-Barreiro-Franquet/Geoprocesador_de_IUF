@@ -816,11 +816,10 @@ class GeoprocesadorDeIUF:
             dir_temporal = os.path.join(dir_fragstats, "_temporal")
             AI_model_path = os.path.join(dir_fragstats, "Agregation_Index_Fragstats_Model.fca") #Path to the model that computes AI | Circular moving window of 20 m
             batch_file_path = os.path.join(dir_temporal, "vegetacion_AI_bachfile.fbt")
-            output_base_path = os.path.join(dir_temporal, "vegetacion_AI")
-            archivo_resultados = f"{output_base_path}.class"
+            output_base_path = os.path.join(dir_temporal, "vegetacion_AI.class")
             with open(batch_file_path, 'w') as file:
-                file.write(f"{capa_vegetada_raster_path}, x, x, x, x")
-            self.log("--> Ejecutando Fragstats en segundo plano...")
+                file.write(f'{os.path.normpath(capa_vegetada_raster_path)}, x, -9999, x, x, 1, x, IDF_GeoTIFF')
+            self.log("--> Ejecutando Fragstats en segundo plano NO TOQUE NADA...")
             comand = [
                 fragstats_console_path,
                 "-m", os.path.normpath(AI_model_path),
@@ -828,16 +827,19 @@ class GeoprocesadorDeIUF:
                 "-o", os.path.normpath(output_base_path)
             ]
             subprocess.run(comand, capture_output=True, text=True, check=True)
-            self.log("--> Obteniendo resultados...")
-            with open(archivo_resultados, 'r') as f:
+            self.log("--> Hecho, obteniendo resultados...")
+            with open(os.path.normpath(output_base_path), 'r') as f:
                 lector_csv = csv.DictReader(f)
                 for fila in lector_csv:
                     if 'AI' in fila:
                         valor_AI = float(fila['AI'])
                         break
             self.log("--> Limpiando directorio temporal...")
-            subprocess.run(['del', '/Q', f'{dir_temporal}\\*'], shell=True)
-            self.log("--> Creando raster temporal...")
+            subprocess.run(['del', '/Q', f'{os.path.normpath(dir_temporal)}\\*'], shell=True)
+
+            #> 6.2.5. Crear un raster que recoja los valores de AI
+            self.log("-> Creando un raster que recoja los valores calculados... (6/x)")
+            self.log("--> Creando un raster vacío...")
             
 
             #> FIN
