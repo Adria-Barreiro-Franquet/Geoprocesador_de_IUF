@@ -836,11 +836,12 @@ class GeoprocesadorDeIUF:
             input_filename = os.path.basename(capa_vegetada_raster_path) #OUTPUT.tif
             fragstats_output_folder = f"{input_filename}_mw1" #OUTPUT.tif_mw1
             resultado_path = os.path.normpath(glob.glob(os.path.join(input_dir, fragstats_output_folder, "ai_1.tif"))[0]) #se pusca el archivo en la memoria temporal
-            self.log(str(resultado_path))
             capa_ai = QgsRasterLayer(resultado_path, "ai_raster")
             QgsProject.instance().addMapLayer(capa_ai) if intermedios else None
             self.log("--> Limpiando directorio temporal...")
             subprocess.run(['del', '/Q', f'{dir_temporal}\\*'], shell=True)
+            capa_ai_raster = QgsRasterLayer(resultado_path, "ai_raster")
+            QgsProject.instance().addMapLayer(capa_ai_raster) if intermedios else None
 
             #> 6.2.6. Reclasificar los valores de AI en 3 grupos
             pass
