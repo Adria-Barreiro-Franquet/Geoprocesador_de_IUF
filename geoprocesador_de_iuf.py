@@ -22,7 +22,7 @@
  ***************************************************************************/
 """
 
-import time, os, subprocess, processing, csv
+import time, os, subprocess, processing, glob
 from qgis.core import QgsProject, QgsProcessingFeedback, QgsVectorLayer, QgsRasterLayer
 from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication
 from qgis.PyQt.QtGui import QIcon
@@ -794,7 +794,8 @@ class GeoprocesadorDeIUF:
             capa_vegetada_raster_path = processing.run("gdal:rasterize", {
                 'INPUT': capa_vegetada,
                 'BURN': 1, #pixel=1 --> vegetado
-                'UNITS': 1, #raster will have georeferenced units
+                'INIT': 0, #pixel=0 --> no vegetado
+                'UNITS': 1,
                 'WIDTH': resolucion,
                 'HEIGHT': resolucion,
                 'DATA_TYPE': 1,
@@ -805,42 +806,44 @@ class GeoprocesadorDeIUF:
             capa_vegetada_raster = QgsRasterLayer(capa_vegetada_raster_path, "vegetacion_considerada_raster")
             QgsProject.instance().addMapLayer(capa_vegetada_raster) if intermedios else None
             
-            #> 6.2.5. Calcular el AI de la capa vegetada usando FRAGSTATS ###########aquiiiiiii######################################################
+            #> 6.2.5. Calcular el AI de la capa vegetada usando FRAGSTATS
             self.log("-> Calculando el Aggregation Index de la vegetación usando Fragstats... (5/x)")
             fragstats_console_path = r"C:\Program Files\Fragstats 4.2\frg_cmd.exe" #Path to FRAGSTATS console executable
             if not os.path.exists(fragstats_console_path):
-                self.log("ERROR: No se encuentra el ejecutable de Fragstats en C:\Program Files\Fragstats 4.2\\")
+                self.log("ERROR: No se encuentra el ejecutable de Fragstats (frg_cmd.exe) en C:\Program Files\Fragstats 4.2\\")
                 return
-            dir_path = os.path.dirname(__file__) #directory of this file
-            dir_fragstats = os.path.join(dir_path, "fragstats")
-            dir_temporal = os.path.join(dir_fragstats, "_temporal")
-            AI_model_path = os.path.join(dir_fragstats, "Agregation_Index_Fragstats_Model.fca") #Path to the model that computes AI | Circular moving window of 20 m
-            batch_file_path = os.path.join(dir_temporal, "vegetacion_AI_bachfile.fbt")
-            output_base_path = os.path.join(dir_temporal, "vegetacion_AI")
+            dir_path = os.path.abspath(os.path.dirname(__file__)) #directory of this file
+            dir_fragstats = os.path.normpath(os.path.join(dir_path, "fragstats"))
+            dir_temporal = os.path.normpath(os.path.join(dir_fragstats, "_temporal"))
+            AI_model_path = os.path.normpath(os.path.join(dir_fragstats, "Agregation_Index_Fragstats_Model.fca")) #Path to the model that computes AI | Circular moving window of 20 m
+            batch_file_path = os.path.normpath(os.path.join(dir_temporal, "vegetacion_AI_bachfile.fbt"))
             with open(batch_file_path, 'w') as file:
-                file.write(f'{os.path.normpath(capa_vegetada_raster_path)}, x, 999, x, x, 1, x, IDF_GeoTIFF')
-            self.log("--> Ejecutando Fragstats en segundo plano, NO TOQUE NADA...")
+                file.write(f'{capa_vegetada_raster_path}, x, -999, x, x, 1, x, IDF_GeoTIFF')
+            self.log("--> Ejecutando Fragstats en segundo plano, NO TOQUE NADA...\n")
             comand = [
                 fragstats_console_path,
-                "-m", os.path.normpath(AI_model_path),
-                "-b", os.path.normpath(batch_file_path),
-                "-o", os.path.normpath(output_base_path)
+                "-m", AI_model_path,
+                "-b", batch_file_path
             ]
-            subprocess.run(comand, capture_output=True, text=True, check=True)
+            try:
+                result = subprocess.run(comand, capture_output=True, text=True)
+                self.log(result.stdout)
+                self.log(result.stderr)
+            except subprocess.CalledProcessError as e:
+                self.log(f"Error crítico ejecutando Fragstats: {e}")
             self.log("--> Hecho, obteniendo resultados...")
-            with open(f"{os.path.normpath(output_base_path)}.class", 'r') as f:
-                lector_csv = csv.DictReader(f)
-                for fila in lector_csv:
-                    if 'AI' in fila:
-                        valor_AI = float(fila['AI'])
-                        break
+            input_dir = os.path.dirname(capa_vegetada_raster_path)
+            input_filename = os.path.basename(capa_vegetada_raster_path) #OUTPUT.tif
+            fragstats_output_folder = f"{input_filename}_mw1" #OUTPUT.tif_mw1
+            resultado_path = os.path.normpath(glob.glob(os.path.join(input_dir, fragstats_output_folder, "ai_1.tif"))[0]) #se pusca el archivo en la memoria temporal
+            self.log(str(resultado_path))
+            capa_ai = QgsRasterLayer(resultado_path, "ai_raster")
+            QgsProject.instance().addMapLayer(capa_ai) if intermedios else None
             self.log("--> Limpiando directorio temporal...")
-            subprocess.run(['del', '/Q', f'{os.path.normpath(dir_temporal)}\\*'], shell=True)
+            subprocess.run(['del', '/Q', f'{dir_temporal}\\*'], shell=True)
 
-            #> 6.2.5. Crear un raster que recoja los valores de AI
-            self.log("-> Creando un raster que recoja los valores calculados... (6/x)")
-            self.log("--> Creando un raster vacío...")
-            
+            #> 6.2.6. Reclasificar los valores de AI en 3 grupos
+            pass
 
             #> FIN
             self.dlg.progressBar.setValue(100)

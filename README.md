@@ -20,7 +20,7 @@ Para que el plugin funcione correctamente, se requieren las siguientes capas en 
 * **Edificaciones**: Polígonos de todo aquello que se tenga en cuenta como edificación.
 * **Uso del suelo**: Clasificación de usos del suelo según los estándares del SIOSE AR 2017. *(Es necesario contar con un equipo de más del doble del peso de esta capa en capacidad de RAM)*
 
-## INSTALACIÓN
+## INSTALACIÓN (WINDOWS)
 1.  Descargar y descomprimir el .zip del proyecto.
 2.  Copiar la carpeta del plugin en la ruta de plugins de QGIS:
     `C:\Users\TU_USUARIO\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins`
