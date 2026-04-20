@@ -843,7 +843,7 @@ class GeoprocesadorDeIUF:
             capa_ai_raster = QgsRasterLayer(resultado_path, "ai_raster")
             QgsProject.instance().addMapLayer(capa_ai_raster) if intermedios else None
 
-            #> 6.2.6. Reclasificar los valores de AI en 3 grupos
+            #> 6.2.6. Reclasificar los valores de AI en 3 grupos ###################################################AQUIIIIIII######################
             self.log("-> Reclasificando los valores de AI... (6/x)") if intermedios else None
             ds = gdal.Open(resultado_path)
             band = ds.GetRasterBand(1)
