@@ -27,6 +27,8 @@ from qgis.core import QgsProject, QgsProcessingFeedback, QgsVectorLayer, QgsRast
 from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication
 from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAction
+from osgeo import gdal
+import numpy as np
 from .resources import *
 from .geoprocesador_de_iuf_dialog import GeoprocesadorDeIUFDialog
 
@@ -807,7 +809,7 @@ class GeoprocesadorDeIUF:
             QgsProject.instance().addMapLayer(capa_vegetada_raster) if intermedios else None
             
             #> 6.2.5. Calcular el AI de la capa vegetada usando FRAGSTATS
-            self.log("-> Calculando el Aggregation Index de la vegetación usando Fragstats... (5/x)")
+            self.log("-> Calculando el Aggregation Index de la vegetación usando Fragstats... (5/x)") if intermedios else None
             fragstats_console_path = r"C:\Program Files\Fragstats 4.2\frg_cmd.exe" #Path to FRAGSTATS console executable
             if not os.path.exists(fragstats_console_path):
                 self.log("ERROR: No se encuentra el ejecutable de Fragstats (frg_cmd.exe) en C:\Program Files\Fragstats 4.2\\")
@@ -819,7 +821,7 @@ class GeoprocesadorDeIUF:
             batch_file_path = os.path.normpath(os.path.join(dir_temporal, "vegetacion_AI_bachfile.fbt"))
             with open(batch_file_path, 'w') as file:
                 file.write(f'{capa_vegetada_raster_path}, x, -999, x, x, 1, x, IDF_GeoTIFF')
-            self.log("--> Ejecutando Fragstats en segundo plano, NO TOQUE NADA...\n")
+            self.log("--> Ejecutando Fragstats en segundo plano, NO TOQUE NADA...\n") if intermedios else None
             comand = [
                 fragstats_console_path,
                 "-m", AI_model_path,
@@ -831,19 +833,48 @@ class GeoprocesadorDeIUF:
                 self.log(result.stderr)
             except subprocess.CalledProcessError as e:
                 self.log(f"Error crítico ejecutando Fragstats: {e}")
-            self.log("--> Hecho, obteniendo resultados...")
+            self.log("--> Hecho, obteniendo resultados...") if intermedios else None
             input_dir = os.path.dirname(capa_vegetada_raster_path)
             input_filename = os.path.basename(capa_vegetada_raster_path) #OUTPUT.tif
             fragstats_output_folder = f"{input_filename}_mw1" #OUTPUT.tif_mw1
             resultado_path = os.path.normpath(glob.glob(os.path.join(input_dir, fragstats_output_folder, "ai_1.tif"))[0]) #se pusca el archivo en la memoria temporal
-            capa_ai = QgsRasterLayer(resultado_path, "ai_raster")
-            QgsProject.instance().addMapLayer(capa_ai) if intermedios else None
-            self.log("--> Limpiando directorio temporal...")
-            subprocess.run(['del', '/Q', f'{dir_temporal}\\*'], shell=True)
+            self.log("--> Limpiando directorio temporal...") if intermedios else None
+            subprocess.run(['del', '/Q', f'{dir_temporal}\\*.fbt'], shell=True)
             capa_ai_raster = QgsRasterLayer(resultado_path, "ai_raster")
             QgsProject.instance().addMapLayer(capa_ai_raster) if intermedios else None
 
             #> 6.2.6. Reclasificar los valores de AI en 3 grupos
+            self.log("-> Reclasificando los valores de AI... (6/x)") if intermedios else None
+            ds = gdal.Open(resultado_path)
+            band = ds.GetRasterBand(1)
+            raster_array = band.ReadAsArray()
+            nodata = band.GetNoDataValue()
+            if nodata is not None:
+                valid_pixels = raster_array[(raster_array > 0) & (raster_array != nodata)]
+            else:
+                valid_pixels = raster_array[raster_array > 0]
+            median_val = np.percentile(valid_pixels, 50)
+            self.log
+            reclass_table = [
+                                -0.0001, 0.0, 1,            # Class 1: Exactly 0 (Zero aggregation)
+                                0.0, median_val, 2,         # Class 2: > 0 to Median (Low aggregation)
+                                median_val, 100.0, 3        # Class 3: > Median to 100 (High aggregation)
+                            ]
+            ai_reclass = processing.run("native:reclassifybytable", {
+                    'INPUT_RASTER': capa_ai_raster,
+                    'RASTER_BAND': 1,
+                    'TABLE': reclass_table,
+                    'NO_DATA': -9999,
+                    'RANGE_BOUNDARIES': 0,      # min < value <= max
+                    'NODATA_FOR_MISSING': True,
+                    'DATA_TYPE': 1,             # Int16
+                    'OUTPUT': 'TEMPORARY_OUTPUT'
+            }, feedback=self.feedback)['OUTPUT']
+            if self.cancelado: return
+            ai_reclass.setName("ai_raster_reclass")
+            QgsProject.instance().addMapLayer(ai_reclass) if intermedios else None
+
+            #> 6.2.7. Combinar (intersectar) las capas generadas (distribución * ai)
             pass
 
             #> FIN
