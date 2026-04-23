@@ -292,9 +292,6 @@ class GeoprocesadorDeIUF:
 
         self.log("----------------------------------------------------------------")
 
-        processing.run("native:createspatialindex", {'INPUT': capa_edif}, feedback=self.feedback)
-        processing.run("native:createspatialindex", {'INPUT': capa_comb}, feedback=self.feedback)
-
         self.log("Aligerando temporalmente las capas de entrada...")
         capa_edif = processing.run("native:retainfields", {
             'INPUT': capa_edif,
@@ -308,6 +305,9 @@ class GeoprocesadorDeIUF:
             'OUTPUT': 'TEMPORARY_OUTPUT'
         }, feedback=self.feedback)['OUTPUT']
         if self.cancelado: return
+
+        processing.run("native:createspatialindex", {'INPUT': capa_edif}, feedback=self.feedback)
+        processing.run("native:createspatialindex", {'INPUT': capa_comb}, feedback=self.feedback)
 
         #> 6.1. MÉTODO ALCASENA
         if metodo == "Alcassena et al.":
