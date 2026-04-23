@@ -163,7 +163,7 @@ class GeoprocesadorDeIUF:
         icon_path = ':/plugins/geoprocesador_de_iuf/icon.png'
         self.add_action(
             icon_path,
-            text=self.tr(u'Este plugin genera un mapa de IUF según el método escogido.'),
+            text=self.tr(u'Geoprocesador de IUF'),
             callback=self.run,
             parent=self.iface.mainWindow())
 
