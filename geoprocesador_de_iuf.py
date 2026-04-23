@@ -491,15 +491,16 @@ class GeoprocesadorDeIUF:
 
             #> 6.1.9. Calcular el radio de afectación por pavesas (embers)
             self.log("-> Calculando el radio de afectación por pavesas... (9/13)") if intermedios else None
-            capa_buffer_pavesas = processing.run("native:buffer", {
+            capa_buffer_pavesas = processing.run("gdal:buffervectors", {
                 'INPUT': capa_montes,
+                'GEOMETRY': 'geom',
                 'DISTANCE': 2000, #según Alcassena et al., el radio de afectación por pavesas es de 2 km
                 'DISSOLVE': True,
                 'OUTPUT': 'TEMPORARY_OUTPUT'
-            }, feedback=self.feedback)['OUTPUT']
+            }, feedback=self.feedback)['OUTPUT'] #el algoritmo de gdal es más rapido que el nativo de QGIS
+            capa_buffer_pavesas = QgsVectorLayer(capa_buffer_pavesas, "radio_afectacion_pavesas", "ogr")
             processing.run("native:createspatialindex", {'INPUT': capa_buffer_pavesas}, feedback=self.feedback)
             if self.cancelado: return
-            capa_buffer_pavesas.setName("radio_afectacion_pavesas")
             QgsProject.instance().addMapLayer(capa_buffer_pavesas) if intermedios else None
 
             #> 6.1.10. Añadir a cada celda de la cuadrícula la información de si intersecta o no con el radio de afectación por pavesas:
