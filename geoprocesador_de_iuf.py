@@ -360,6 +360,7 @@ class GeoprocesadorDeIUF:
                 'FORMULA': '"edificios" / 0.0225', # 150m x 150m = 0.0225 km^2
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
+            processing.run("native:createspatialindex", {'INPUT': capa_cuadricula}, feedback=self.feedback) #tras native:fieldcalculator se pierde el spatial index
             if self.cancelado: return
 
             #> 6.1.4. Clasificar cada cuadrícula en 3 clases de densidad (muy_baja, baja, medio_alta):
@@ -381,6 +382,7 @@ class GeoprocesadorDeIUF:
                             """,
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
+            processing.run("native:createspatialindex", {'INPUT': capa_cuadricula}, feedback=self.feedback) #tras native:fieldcalculator se pierde el spatial index
             if self.cancelado: return
             
             #> 6.1.5. Reclasificar la capa de combustible (siose) en 2 clases (vegetado y no_vegetado):
@@ -394,6 +396,7 @@ class GeoprocesadorDeIUF:
                 'FORMULA': f"if(\"ID_COBERTURA_MAX\" IN ({ids_monte}), 'vegetado', 'no_vegetado')",
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
+            processing.run("native:createspatialindex", {'INPUT': capa_comb}, feedback=self.feedback) #tras native:fieldcalculator se pierde el spatial index
             if self.cancelado: return
 
             #> 6.1.6. Calcular si cada celda contiene mayoritariamente suelo vegetado o no vegetado:
@@ -443,6 +446,7 @@ class GeoprocesadorDeIUF:
                 'FORMULA': f"IF(COALESCE(\"{nombre_campo_pc}\", 0) >= 50, 'vegetado', 'no_vegetado')",
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
+            processing.run("native:createspatialindex", {'INPUT': capa_cuadricula}, feedback=self.feedback) #tras native:fieldcalculator se pierde el spatial index
             if self.cancelado: return
 
             #> 6.1.7. Combinar poligonos de contenido vegetado:
@@ -509,6 +513,7 @@ class GeoprocesadorDeIUF:
                 'FORMULA': True,
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
+            processing.run("native:createspatialindex", {'INPUT': capa_buffer_pavesas}, feedback=self.feedback) #tras native:fieldcalculator se pierde el spatial index
             if self.cancelado: return
             self.log("--> Cruzando cuadrícula con zona de pavesas...") if intermedios else None
             capa_cuadricula = processing.run("native:joinattributesbylocation", {
@@ -530,6 +535,7 @@ class GeoprocesadorDeIUF:
                 'FORMULA': "IF(\"marca_temp\" = True, 'sí', 'no')",
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
+            processing.run("native:createspatialindex", {'INPUT': capa_cuadricula}, feedback=self.feedback) #tras native:fieldcalculator se pierde el spatial index
             if self.cancelado: return
             capa_cuadricula = processing.run("native:deletecolumn", {
                 'INPUT': capa_cuadricula,
