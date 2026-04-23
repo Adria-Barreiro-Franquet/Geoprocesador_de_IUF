@@ -23,11 +23,12 @@
 """
 
 import time, os, subprocess, processing, glob
-from qgis.core import QgsProject, QgsProcessingFeedback, QgsVectorLayer, QgsRasterLayer
+from qgis.core import QgsProject, QgsProcessingFeedback, QgsVectorLayer, QgsRasterLayer, QgsSpatialIndex, QgsFeatureRequest
 from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication
 from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAction
 from osgeo import gdal
+from collections import Counter
 import numpy as np
 from .resources import *
 from .geoprocesador_de_iuf_dialog import GeoprocesadorDeIUFDialog
@@ -405,6 +406,7 @@ class GeoprocesadorDeIUF:
                 'VALUE': 'vegetado',
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
+            processing.run("native:createspatialindex", {'INPUT': capa_vegetada}, feedback=self.feedback)
             if self.cancelado: return
             self.log("--> Optimizando vegetación...")
             capa_vegetada = processing.run("native:subdivide", {
@@ -582,35 +584,31 @@ class GeoprocesadorDeIUF:
 
             #> 6.1.12. Rellenar celdas vacías según el tipo de IUF más común entre sus vecinas:
             self.log("-> Rellenando celdas vacías... (12/13)") if intermedios else None
+            idx_clase = capa_resultado.fields().indexOf('clase_IUF')
             for n in range(2):
                 if self.cancelado: return
                 self.log(f"--> Ejecutando pasada de rellenado {n+1}/2...") if intermedios else None
-                capa_resultado = processing.run("native:fieldcalculator", {
-                    'INPUT': capa_resultado,
-                    'FIELD_NAME': 'clase_IUF',
-                    'FIELD_TYPE': 2,
-                    'FIELD_LENGTH': 32,
-                    'NEW_FIELD': False,
-                    'FORMULA': """
-                                    CASE 
-                                        WHEN "clase_IUF" = 'No clasificado' THEN
-                                            COALESCE(
-                                                array_first(
-                                                    array_majority(
-                                                        array_remove_all(
-                                                            overlay_intersects(@layer, "clase_IUF"),
-                                                            'No clasificado'
-                                                        )
-                                                    )
-                                                ),
-                                                'No clasificado'
-                                            )
-                                        ELSE "clase_IUF"
-                                    END
-                                """,
-                    'OUTPUT': 'TEMPORARY_OUTPUT'
-                }, feedback=self.feedback)['OUTPUT']
-                if self.cancelado: return
+                index = QgsSpatialIndex(capa_resultado.getFeatures())
+                query = QgsFeatureRequest().setFilterExpression('"clase_IUF" = \'No clasificado\'')
+                features_a_reparar = list(capa_resultado.getFeatures(query))
+                if not features_a_reparar: break
+                cambios = {}
+                for f in features_a_reparar:
+                    if self.cancelado: return
+                    ids_vecinos = index.intersects(f.geometry().boundingBox())
+                    clases_vecinas = []
+                    for v_id in ids_vecinos:
+                        if v_id == f.id(): continue
+                        feat_v = capa_resultado.getFeature(v_id)
+                        val = feat_v['clase_IUF']
+                        if val and val != 'No clasificado':
+                            clases_vecinas.append(val)
+                    if clases_vecinas:
+                        moda = Counter(clases_vecinas).most_common(1)[0][0]
+                        cambios[f.id()] = {idx_clase: moda}
+                if cambios:
+                    capa_resultado.dataProvider().changeAttributeValues(cambios)
+                    capa_resultado.updateFields()
 
             #> 6.1.13. Eliminar celdas que no se han podido clasificar y disolver las que sí:
             self.log("-> Eliminando y disolviendo celdas... (13/13)") if intermedios else None
