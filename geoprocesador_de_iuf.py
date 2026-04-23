@@ -429,7 +429,7 @@ class GeoprocesadorDeIUF:
                 'INPUT': capa_cuadricula,
                 'LAYERS': [capa_vegetada],
                 'OUTPUT': 'TEMPORARY_OUTPUT'
-            }, feedback=self.feedback)['OUTPUT']
+            }, feedback=self.feedback)['OUTPUT'] #cuello de botella aquí
             if self.cancelado: return
             self.log("--> Determinando el contenido mayoritario en cada celda...") if intermedios else None
             for f in capa_cuadricula.fields():
