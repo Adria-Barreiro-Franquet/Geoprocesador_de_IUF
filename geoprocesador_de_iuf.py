@@ -295,7 +295,7 @@ class GeoprocesadorDeIUF:
         self.log("Aligerando temporalmente las capas de entrada...")
         capa_edif = processing.run("native:retainfields", {
             'INPUT': capa_edif,
-            'FIELDS': ['id'], 
+            'FIELDS': ['id'],
             'OUTPUT': 'TEMPORARY_OUTPUT'
         }, feedback=self.feedback)['OUTPUT']
         if self.cancelado: return
