@@ -451,28 +451,16 @@ class GeoprocesadorDeIUF:
 
             #> 6.1.7. Combinar poligonos de contenido vegetado:
             self.log("-> Combinando los polígonos de contenido vegetado... (7/13)") if intermedios else None
-            self.log("--> Subdividiendo para acelerar el proceso...")
-            capa_vegetada = processing.run("native:subdivide", {
+            capa_vegetada = processing.run("gdal:dissolve", {
                 'INPUT': capa_vegetada,
-                'MAX_VERTICES': 1000,
+                'GEOMETRY': 'geom',
+                'OUTPUT': 'TEMPORARY_OUTPUT'
+            }, feedback=self.feedback)['OUTPUT'] #el algoritmo de gdal es más rapido que el nativo de QGIS
+            if self.cancelado: return
+            capa_vegetada = processing.run("native:multiparttosingleparts", {
+                'INPUT': capa_vegetada,
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
-            if self.cancelado: return
-            self.log("--> Comprobando geometrias...") if intermedios else None
-            capa_vegetada = processing.run("native:fixgeometries", {
-                'INPUT': capa_vegetada,
-                'OUTPUT': 'TEMPORARY_OUTPUT'
-            }, feedback=self.feedback)['OUTPUT']
-            if self.cancelado: return
-            self.log("--> Disolviendo...") if intermedios else None
-            capa_vegetada = processing.run("native:dissolve", {
-                'INPUT': capa_vegetada,
-                'OUTPUT': 'TEMPORARY_OUTPUT',
-                'SEPARATE_DISJOINT': True
-            }, feedback=self.feedback)['OUTPUT'] #SE PUEDE HACER UN BUFFER=0 CON EL DISSOLVE ACTIVADO, ESO ES MÁS RÁPIDO?
-            #geoms = [f.geometry() for f in capa_vegetada.getFeatures()]
-            #union_geom = QgsGeometry.unaryUnion(geoms)
-            #partes = union_geom.asGeometryCollection() if union_geom.isMultipart() else [union_geom]
             if self.cancelado: return
             capa_vegetada.setName("vegetacion_considerada")
             QgsProject.instance().addMapLayer(capa_vegetada) if intermedios else None
