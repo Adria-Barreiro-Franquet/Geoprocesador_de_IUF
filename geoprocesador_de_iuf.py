@@ -323,8 +323,8 @@ class GeoprocesadorDeIUF:
             processing.run("native:createspatialindex", {'INPUT': capa_centroides}, feedback=self.feedback)
             if self.cancelado: return
             
-            #> 6.1.2. Crear una cuadrícula de 150x150m:
-            self.log("-> Creando cuadrícula de 150x150m... (2/13)") if intermedios else None
+            #> 6.1.2. Crear una cuadrícula de 150x150m i 450x450m:
+            self.log("-> Creando cuadrículas de 150x150m i 450x450m... (2/13)") if intermedios else None
             bb = capa_comb.extent() #se toma la extensión de la capa de combustible para asegurar que cubre toda el área de estudio
             capa_cuadricula = processing.run("native:creategrid", {
                 'TYPE': 2,
@@ -338,35 +338,47 @@ class GeoprocesadorDeIUF:
             }, feedback=self.feedback)['OUTPUT']
             processing.run("native:createspatialindex", {'INPUT': capa_cuadricula}, feedback=self.feedback)
             if self.cancelado: return
+            capa_cuadricula_dens = processing.run("native:creategrid", {
+                'TYPE': 2,
+                'EXTENT': f"{bb.xMinimum()},{bb.xMaximum()},{bb.yMinimum()},{bb.yMaximum()}",
+                'HSPACING': 450,
+                'VSPACING': 450,
+                'HOVERLAY': 0,
+                'VOVERLAY': 0,
+                'CRS': capa_edif.crs().authid(),
+                'OUTPUT': 'TEMPORARY_OUTPUT'
+            }, feedback=self.feedback)['OUTPUT']
+            processing.run("native:createspatialindex", {'INPUT': capa_cuadricula_dens}, feedback=self.feedback)
+            if self.cancelado: return
 
-            #> 6.1.3. Calcular la densidad de edificaciones en cada celda de la cuadricula (edificios / km^2):
-            self.log("-> Calculando densidad de edificaciones en cada celda... (3/13)") if intermedios else None
+            #> 6.1.3. Calcular la densidad de edificaciones en cada celda de la cuadricula de 450x450m (edificios / km^2):
+            self.log("-> Calculando densidad de edificaciones en cada celda de la cuadricula de 450x450m... (3/13)") if intermedios else None
             self.log("--> Contando...") if intermedios else None
-            capa_cuadricula = processing.run("native:countpointsinpolygon", {
-                'POLYGONS': capa_cuadricula,
+            capa_cuadricula_dens = processing.run("native:countpointsinpolygon", {
+                'POLYGONS': capa_cuadricula_dens,
                 'POINTS': capa_centroides,
                 'FIELD': 'edificios',
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
             if self.cancelado: return
             self.log("--> Calculando...") if intermedios else None
-            capa_cuadricula = processing.run("native:fieldcalculator", {
-                'INPUT': capa_cuadricula,
+            capa_cuadricula_dens = processing.run("native:fieldcalculator", {
+                'INPUT': capa_cuadricula_dens,
                 'FIELD_NAME': 'densidad',
                 'FIELD_TYPE': 0,
                 'FIELD_LENGTH': 10,
                 'FIELD_PRECISION': 2,
                 'NEW_FIELD': True,
-                'FORMULA': '"edificios" / 0.0225', # 150m x 150m = 0.0225 km^2
+                'FORMULA': '"edificios" / 0.2025', # 450m x 450m = 0.2025 km^2
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
-            processing.run("native:createspatialindex", {'INPUT': capa_cuadricula}, feedback=self.feedback) #tras native:fieldcalculator se pierde el spatial index
+            processing.run("native:createspatialindex", {'INPUT': capa_cuadricula_dens}, feedback=self.feedback) #tras native:fieldcalculator se pierde el spatial index
             if self.cancelado: return
 
-            #> 6.1.4. Clasificar cada cuadrícula en 3 clases de densidad (muy_baja, baja, medio_alta):
-            self.log("-> Clasificando la densidad de cada celda... (4/13)") if intermedios else None
-            capa_cuadricula = processing.run("native:fieldcalculator", {
-                'INPUT': capa_cuadricula,
+            #> 6.1.4. Clasificar cada cuadrícula de 450x450m en 3 clases de densidad (muy_baja, baja, medio_alta) i añadir esta clasificación a cada celda de la cuadricula de 150x150m:
+            self.log("-> Clasificando la densidad de cada celda de la cuadricula de 450x450m y añadiendo la clasificación a la celda de la cuadricula de 150x150m... (4/13)") if intermedios else None
+            capa_cuadricula_dens = processing.run("native:fieldcalculator", {
+                'INPUT': capa_cuadricula_dens,
                 'FIELD_NAME': 'densidad_clase',
                 'FIELD_TYPE': 2,
                 'FIELD_LENGTH': 16,
@@ -382,8 +394,17 @@ class GeoprocesadorDeIUF:
                             """,
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
-            processing.run("native:createspatialindex", {'INPUT': capa_cuadricula}, feedback=self.feedback) #tras native:fieldcalculator se pierde el spatial index
+            processing.run("native:createspatialindex", {'INPUT': capa_cuadricula_dens}, feedback=self.feedback) #tras native:fieldcalculator se pierde el spatial index
             if self.cancelado: return
+            capa_cuadricula = processing.run("native:joinattributesbylocation", {
+                'INPUT': capa_cuadricula,
+                'PREDICATE': [5],
+                'JOIN': capa_cuadricula_dens,
+                'JOIN_FIELDS': ['densidad', 'densidad_clase'],
+                'METHOD': 0,
+                'DISCARD_NON_MATCHING': True,
+                'OUTPUT': 'TEMPORARY_OUTPUT'
+            }, feedback=self.feedback)['OUTPUT']
             
             #> 6.1.5. Reclasificar la capa de combustible (siose) en 2 clases (vegetado y no_vegetado):
             self.log("-> Reclasificando los usos del suelo... (5/13)") if intermedios else None
