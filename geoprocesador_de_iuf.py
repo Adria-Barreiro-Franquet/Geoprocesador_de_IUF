@@ -669,6 +669,7 @@ class GeoprocesadorDeIUF:
                 'FORMULA': f"if(\"ID_COBERTURA_MAX\" IN ({ids_monte}), 'vegetado', 'no_vegetado')",
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
+            processing.run("native:createspatialindex", {'INPUT': capa_comb}, feedback=self.feedback) #tras native:fieldcalculator se pierde el spatial index
             if self.cancelado: return
     
             #> 6.2.2. Seleccionar edificaciones dentro de la zona de afectación por bosques:
@@ -683,31 +684,19 @@ class GeoprocesadorDeIUF:
             }, feedback=self.feedback)['OUTPUT']
             processing.run("native:createspatialindex", {'INPUT': capa_vegetada}, feedback=self.feedback)
             if self.cancelado: return
-            self.log("--> Optimizando vegetación...")
-            capa_vegetada = processing.run("native:subdivide", {
-                'INPUT': capa_vegetada,
-                'MAX_VERTICES': 1000,
-                'OUTPUT': 'TEMPORARY_OUTPUT'
-            }, feedback=self.feedback)['OUTPUT']
-            if self.cancelado: return
-            self.log("--> Comprobando geometrias...") if intermedios else None
-            capa_vegetada = processing.run("native:fixgeometries", {
-                'INPUT': capa_vegetada,
-                'OUTPUT': 'TEMPORARY_OUTPUT'
-            }, feedback=self.feedback)['OUTPUT']
-            if self.cancelado: return
             capa_vegetada.setName("vegetacion_considerada")
             QgsProject.instance().addMapLayer(capa_vegetada) if intermedios else None
             self.log("--> Extrayendo edificaciones dentro del radio de afectación por bosques...") if intermedios else None
-            radio_afectacion_bosques = processing.run("native:buffer", {
+            radio_afectacion_bosques = processing.run("gdal:buffervectors", {
                 'INPUT': capa_vegetada,
+                'GEOMETRY': 'geom',
                 'DISTANCE': 200,
                 'DISSOLVE': True,
                 'OUTPUT': 'TEMPORARY_OUTPUT'
-            }, feedback=self.feedback)['OUTPUT']
+            }, feedback=self.feedback)['OUTPUT'] #el algoritmo de gdal es más rapido que el nativo de QGIS
+            radio_afectacion_bosques = QgsVectorLayer(radio_afectacion_bosques, "radio_afectacion_bosques", "ogr")
             processing.run("native:createspatialindex", {'INPUT': radio_afectacion_bosques}, feedback=self.feedback)
             if self.cancelado: return
-            radio_afectacion_bosques.setName("radio_de_afectacion_bosques")
             QgsProject.instance().addMapLayer(radio_afectacion_bosques) if intermedios else None
             capa_edif_afectadas = processing.run("native:extractbylocation", {
                 'INPUT': capa_edif,
@@ -731,22 +720,26 @@ class GeoprocesadorDeIUF:
             processing.run("native:createspatialindex", {'INPUT': centroides_afectados}, feedback=self.feedback)
             if self.cancelado: return
             self.log("--> Calculando buffers")
-            clusters_principales = processing.run("native:buffer", {
+            clusters_principales = processing.run("gdal:buffervectors", {
                 'INPUT': capa_edif_afectadas,
+                'GEOMETRY': 'geom',
                 'DISTANCE': 100/2,
                 'DISSOLVE': True,
                 'OUTPUT': 'TEMPORARY_OUTPUT',
                 'SEPARATE_DISJOINT': True
             }, feedback=self.feedback)['OUTPUT']
+            clusters_principales = QgsVectorLayer(clusters_principales, "clusters_principales", "ogr")
             processing.run("native:createspatialindex", {'INPUT': clusters_principales}, feedback=self.feedback)
             if self.cancelado: return
-            clusters_secundarios = processing.run("native:buffer", {
+            clusters_secundarios = processing.run("gdal:buffervectors", {
                 'INPUT': capa_edif_afectadas,
+                'GEOMETRY': 'geom',
                 'DISTANCE': 30/2,
                 'DISSOLVE': True,
                 'OUTPUT': 'TEMPORARY_OUTPUT',
                 'SEPARATE_DISJOINT': True
             }, feedback=self.feedback)['OUTPUT']
+            clusters_secundarios = QgsVectorLayer(clusters_secundarios, "clusters_secundarios", "ogr")
             processing.run("native:createspatialindex", {'INPUT': clusters_secundarios}, feedback=self.feedback)
             if self.cancelado: return
             self.log("--> Contando edificios agrupados") if intermedios else None
@@ -780,6 +773,7 @@ class GeoprocesadorDeIUF:
                 """,
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT'] #No clasificado --> Solo 1 edificación o error
+            processing.run("native:createspatialindex", {'INPUT': clusters_principales}, feedback=self.feedback) #tras native:fieldcalculator se pierde el spatial index
             if self.cancelado: return
             clusters_secundarios = processing.run("native:fieldcalculator", {
                 'INPUT': clusters_secundarios,
@@ -795,17 +789,18 @@ class GeoprocesadorDeIUF:
                 """,
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
+            processing.run("native:createspatialindex", {'INPUT': clusters_secundarios}, feedback=self.feedback) #tras native:fieldcalculator se pierde el spatial index
             if self.cancelado: return
             self.log("--> Uniendo resultados...") if intermedios else None
-            buffers_union =processing.run("native:union", {
+            clusters =processing.run("native:union", {
                 'INPUT': clusters_principales,
                 'OVERLAY': clusters_secundarios,
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
-            processing.run("native:createspatialindex", {'INPUT': buffers_union}, feedback=self.feedback)
+            processing.run("native:createspatialindex", {'INPUT': clusters}, feedback=self.feedback)
             if self.cancelado: return
-            buffers_union.setName("conjuntos_de_edificaciones_clasificadas")
-            QgsProject.instance().addMapLayer(buffers_union) if intermedios else None
+            clusters.setName("conjuntos_de_edificaciones_clasificadas")
+            QgsProject.instance().addMapLayer(clusters) if intermedios else None
 
             #> 6.2.4. Rasterizar la capa de vegetación
             self.log("-> Rasterizando capa de vegetación... (4/8)") if intermedios else None
@@ -845,7 +840,7 @@ class GeoprocesadorDeIUF:
                 "-b", batch_file_path
             ]
             try:
-                result = subprocess.run(comand, capture_output=True, text=True)
+                result = subprocess.run(comand, capture_output=True, text=True) #cuello de botella aquí
                 self.log(result.stdout)
                 self.log(result.stderr)
             except subprocess.CalledProcessError as e:
@@ -854,7 +849,7 @@ class GeoprocesadorDeIUF:
             input_dir = os.path.dirname(capa_vegetada_raster_path)
             input_filename = os.path.basename(capa_vegetada_raster_path) #OUTPUT.tif
             fragstats_output_folder = f"{input_filename}_mw1" #OUTPUT.tif_mw1
-            resultado_path = os.path.normpath(glob.glob(os.path.join(input_dir, fragstats_output_folder, "ai_1.tif"))[0]) #se pusca el archivo en la memoria temporal
+            resultado_path = os.path.normpath(glob.glob(os.path.join(input_dir, fragstats_output_folder, "ai_1.tif"))[0]) #se busca el archivo en la memoria temporal
             self.log("--> Limpiando directorio temporal...") if intermedios else None
             subprocess.run(['del', '/Q', f'{dir_temporal}\\*.fbt'], shell=True)
             capa_ai_raster = QgsRasterLayer(resultado_path, "ai_raster")
@@ -873,7 +868,7 @@ class GeoprocesadorDeIUF:
             median_val = np.percentile(valid_pixels, 50)
             self.log(f"--> Valor de la mediana de AI: {median_val}")
             reclass_table = [
-                                0, 0, 1,            # Class 1: Exactly 0 (Zero aggregation)
+                                0, 0, 1,                  # Class 1: Exactly 0 (Zero aggregation)
                                 0, median_val, 2,         # Class 2: > 0 to Median (Low aggregation)
                                 median_val, 100, 3        # Class 3: > Median to 100 (High aggregation)
                             ]
@@ -900,10 +895,10 @@ class GeoprocesadorDeIUF:
             if self.cancelado: return
             self.log("--> Intersectando conjuntos de edificaciones con valores de AI...") if intermedios else None
             resultado = processing.run("native:intersection", {
-                'INPUT': buffers_union,
+                'INPUT': clusters,
                 'OVERLAY': ai_reclass_vector,
                 'OUTPUT': 'TEMPORARY_OUTPUT'
-            }, feedback=self.feedback)['OUTPUT']
+            }, feedback=self.feedback)['OUTPUT'] #cuello de botella aquí
             processing.run("native:createspatialindex", {'INPUT': resultado}, feedback=self.feedback)
             if self.cancelado: return
 
