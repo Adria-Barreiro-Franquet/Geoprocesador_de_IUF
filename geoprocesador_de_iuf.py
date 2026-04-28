@@ -713,6 +713,11 @@ class GeoprocesadorDeIUF:
             }, feedback=self.feedback)['OUTPUT']
             clusters_principales = QgsVectorLayer(clusters_principales, "clusters_principales", "ogr")
             processing.run("native:createspatialindex", {'INPUT': clusters_principales}, feedback=self.feedback)
+            clusters_principales = processing.run("native:multiparttosingleparts", {
+                'INPUT': clusters_principales,
+                'OUTPUT': 'TEMPORARY_OUTPUT'
+            }, feedback=self.feedback)['OUTPUT']
+            processing.run("native:createspatialindex", {'INPUT': clusters_principales}, feedback=self.feedback)
             if self.cancelado: return
             clusters_secundarios = processing.run("gdal:buffervectors", {
                 'INPUT': capa_edif_afectadas,
@@ -723,6 +728,11 @@ class GeoprocesadorDeIUF:
                 'SEPARATE_DISJOINT': True
             }, feedback=self.feedback)['OUTPUT']
             clusters_secundarios = QgsVectorLayer(clusters_secundarios, "clusters_secundarios", "ogr")
+            processing.run("native:createspatialindex", {'INPUT': clusters_secundarios}, feedback=self.feedback)
+            clusters_secundarios = processing.run("native:multiparttosingleparts", {
+                'INPUT': clusters_secundarios,
+                'OUTPUT': 'TEMPORARY_OUTPUT'
+            }, feedback=self.feedback)['OUTPUT']
             processing.run("native:createspatialindex", {'INPUT': clusters_secundarios}, feedback=self.feedback)
             if self.cancelado: return
             self.log("--> Contando edificios agrupados") if intermedios else None
@@ -786,7 +796,7 @@ class GeoprocesadorDeIUF:
             QgsProject.instance().addMapLayer(clusters) if intermedios else None
 
             #> 6.2.3. Rasterizar la capa de vegetación
-            self.log("-> Rasterizando capa de vegetación... (4/7)") if intermedios else None
+            self.log("-> Rasterizando capa de vegetación... (3/7)") if intermedios else None
             resolucion = 5 #valor totalmente dependiente del entorno de ejecución.
             capa_vegetada_raster_path = processing.run("gdal:rasterize", {
                 'INPUT': capa_vegetada,
