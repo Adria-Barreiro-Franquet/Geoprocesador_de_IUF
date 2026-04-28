@@ -658,28 +658,12 @@ class GeoprocesadorDeIUF:
         #> 6.2. MÉTODO LAMPIN-MAILLET
         if metodo == "Lampin-Maillet et al.":
             
-            #> 6.2.1. Reclasificar la capa de combustible (siose) en 2 clases (vegetado y no_vegetado):
-            self.log("-> Reclasificando los usos del suelo... (1/8)") if intermedios else None
-            self.log("--> Reclasificando...")
-            capa_comb = processing.run("native:fieldcalculator", {
-                'INPUT': capa_comb,
-                'FIELD_NAME': 'contenido',
-                'FIELD_TYPE': 2,
-                'FIELD_LENGTH': 16,
-                'FORMULA': f"if(\"ID_COBERTURA_MAX\" IN ({ids_monte}), 'vegetado', 'no_vegetado')",
-                'OUTPUT': 'TEMPORARY_OUTPUT'
-            }, feedback=self.feedback)['OUTPUT']
-            processing.run("native:createspatialindex", {'INPUT': capa_comb}, feedback=self.feedback) #tras native:fieldcalculator se pierde el spatial index
-            if self.cancelado: return
-    
-            #> 6.2.2. Seleccionar edificaciones dentro de la zona de afectación por bosques:
-            self.log("-> Seleccionando edificaciones dentro de la zona de afectación por bosques... (2/8)") if intermedios else None
+            #> 6.2.1. Seleccionar edificaciones dentro de la zona de afectación por bosques:
+            self.log("-> Seleccionando edificaciones dentro de la zona de afectación por bosques... (1/7)") if intermedios else None
             self.log("--> Extrayendo solo las partes de la capa de combustible que son vegetadas...") if intermedios else None
-            capa_vegetada = processing.run("native:extractbyattribute", {
+            capa_vegetada = processing.run("native:extractbyexpression", {
                 'INPUT': capa_comb,
-                'FIELD': 'contenido',
-                'OPERATOR': 0,
-                'VALUE': 'vegetado',
+                'EXPRESSION': f"\"ID_COBERTURA_MAX\" IN ({ids_monte})",
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
             processing.run("native:createspatialindex", {'INPUT': capa_vegetada}, feedback=self.feedback)
