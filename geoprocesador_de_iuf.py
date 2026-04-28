@@ -675,7 +675,6 @@ class GeoprocesadorDeIUF:
                 'INPUT': capa_vegetada,
                 'GEOMETRY': 'geom',
                 'DISTANCE': 200,
-                'DISSOLVE': True,
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT'] #el algoritmo de gdal es más rapido que el nativo de QGIS
             radio_afectacion_bosques = QgsVectorLayer(radio_afectacion_bosques, "radio_afectacion_bosques", "ogr")
@@ -693,8 +692,8 @@ class GeoprocesadorDeIUF:
             capa_edif_afectadas.setName("edificaciones_en_zona_afectacion_bosques")
             QgsProject.instance().addMapLayer(capa_edif_afectadas) if intermedios else None
 
-            #> 6.2.3. Classificar conjuntos de edificios según el método de Lampin-Maillet et al. (2009):
-            self.log("-> Clasificando conjuntos de edificios... (3/8)") if intermedios else None
+            #> 6.2.2. Classificar conjuntos de edificios según el método de Lampin-Maillet et al. (2009):
+            self.log("-> Clasificando conjuntos de edificios... (2/7)") if intermedios else None
             self.log("--> Calculando centroides de los afectados...") if intermedios else None
             centroides_afectados = processing.run("native:centroids", {
                 'INPUT': capa_edif_afectadas,
@@ -786,8 +785,8 @@ class GeoprocesadorDeIUF:
             clusters.setName("conjuntos_de_edificaciones_clasificadas")
             QgsProject.instance().addMapLayer(clusters) if intermedios else None
 
-            #> 6.2.4. Rasterizar la capa de vegetación
-            self.log("-> Rasterizando capa de vegetación... (4/8)") if intermedios else None
+            #> 6.2.3. Rasterizar la capa de vegetación
+            self.log("-> Rasterizando capa de vegetación... (4/7)") if intermedios else None
             resolucion = 5 #valor totalmente dependiente del entorno de ejecución.
             capa_vegetada_raster_path = processing.run("gdal:rasterize", {
                 'INPUT': capa_vegetada,
@@ -804,8 +803,8 @@ class GeoprocesadorDeIUF:
             capa_vegetada_raster = QgsRasterLayer(capa_vegetada_raster_path, "vegetacion_considerada_raster")
             QgsProject.instance().addMapLayer(capa_vegetada_raster) if intermedios else None
             
-            #> 6.2.5. Calcular el AI de la capa vegetada usando FRAGSTATS
-            self.log("-> Calculando el Aggregation Index de la vegetación usando Fragstats... (5/8)") if intermedios else None
+            #> 6.2.4. Calcular el AI de la capa vegetada usando FRAGSTATS
+            self.log("-> Calculando el Aggregation Index de la vegetación usando Fragstats... (4/7)") if intermedios else None
             fragstats_console_path = r"C:\Program Files\Fragstats 4.2\frg_cmd.exe" #Path to FRAGSTATS console executable
             if not os.path.exists(fragstats_console_path):
                 self.log("ERROR: No se encuentra el ejecutable de Fragstats (frg_cmd.exe) en C:\Program Files\Fragstats 4.2\\")
@@ -840,8 +839,8 @@ class GeoprocesadorDeIUF:
             capa_ai_raster.setCrs(capa_vegetada.crs())
             QgsProject.instance().addMapLayer(capa_ai_raster) if intermedios else None
 
-            #> 6.2.6. Reclasificar los valores de AI en 3 grupos
-            self.log("-> Reclasificando los valores de AI... (6/8)") if intermedios else None
+            #> 6.2.5. Reclasificar los valores de AI en 3 grupos
+            self.log("-> Reclasificando los valores de AI... (5/7)") if intermedios else None
             ds = gdal.Open(resultado_path)
             band = ds.GetRasterBand(1)
             raster_array = band.ReadAsArray()
@@ -855,7 +854,7 @@ class GeoprocesadorDeIUF:
             reclass_table = [
                                 -0.1, 0, 1,               # Class 1: Exactly 0 (Zero aggregation)
                                 0, median_val, 2,         # Class 2: > 0 to Median (Low aggregation)
-                                median_val, 100, 3        # Class 3: > Median to 100 (High aggregation)
+                                median_val, 100.1, 3        # Class 3: > Median to 100 (High aggregation)
                             ]
             ai_reclass = processing.run("native:reclassifybytable", {
                     'INPUT_RASTER': capa_ai_raster,
@@ -868,8 +867,8 @@ class GeoprocesadorDeIUF:
             ai_reclass = QgsRasterLayer(ai_reclass, "ai_raster_reclass")
             QgsProject.instance().addMapLayer(ai_reclass) if intermedios else None
 
-            #> 6.2.7. Combinar (intersectar) las capas generadas (distribución * ai)
-            self.log("-> Intersectando conjuntos de edificaciones con valores de AI... (7/8)") if intermedios else None
+            #> 6.2.6. Combinar (intersectar) las capas generadas (distribución * ai)
+            self.log("-> Intersectando conjuntos de edificaciones con valores de AI... (6/7)") if intermedios else None
             resultado = processing.run("native:zonalstatisticsfb", {
                 'INPUT': clusters,
                 'INPUT_RASTER': ai_reclass,
@@ -880,8 +879,8 @@ class GeoprocesadorDeIUF:
             processing.run("native:createspatialindex", {'INPUT': resultado}, feedback=self.feedback)
             if self.cancelado: return
 
-            #> 6.2.8. Eliminar polígonos que no se han podido clasificar y disolver los que sí:
-            self.log("-> Examinando y disolviendo resultados... (8/8)") if intermedios else None
+            #> 6.2.7. Eliminar polígonos que no se han podido clasificar y disolver los que sí:
+            self.log("-> Examinando y disolviendo resultados... (7/7)") if intermedios else None
             self.log("--> Clasificando el resultado...") if intermedios else None
             resultado = processing.run("native:fieldcalculator", {
                 'INPUT': resultado,
@@ -920,13 +919,6 @@ class GeoprocesadorDeIUF:
             resultado = processing.run("native:fixgeometries", {
                 'INPUT': resultado,
                 'OUTPUT': 'TEMPORARY_OUTPUT'
-            }, feedback=self.feedback)['OUTPUT']
-            if self.cancelado: return
-            self.log("--> Limpiando atributos...") if intermedios else None
-            resultado = processing.run("native:retainfields", {
-            'INPUT': resultado,
-            'FIELDS': ['clase_IUF'], 
-            'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
             if self.cancelado: return
             self.log("--> Disolviendo por clase de IUF...") if intermedios else None
