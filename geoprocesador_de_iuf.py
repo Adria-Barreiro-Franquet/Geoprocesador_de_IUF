@@ -853,6 +853,7 @@ class GeoprocesadorDeIUF:
             self.log("--> Limpiando directorio temporal...") if intermedios else None
             subprocess.run(['del', '/Q', f'{dir_temporal}\\*.fbt'], shell=True)
             capa_ai_raster = QgsRasterLayer(resultado_path, "ai_raster")
+            capa_ai_raster.setCrs(capa_vegetada.crs())
             QgsProject.instance().addMapLayer(capa_ai_raster) if intermedios else None
 
             #> 6.2.6. Reclasificar los valores de AI en 3 grupos
@@ -865,10 +866,10 @@ class GeoprocesadorDeIUF:
                 valid_pixels = raster_array[(raster_array > 0) & (raster_array != nodata)]
             else:
                 valid_pixels = raster_array[raster_array > 0]
-            median_val = np.percentile(valid_pixels, 50)
+            median_val = float(np.percentile(valid_pixels, 50))
             self.log(f"--> Valor de la mediana de AI: {median_val}")
             reclass_table = [
-                                0, 0, 1,                  # Class 1: Exactly 0 (Zero aggregation)
+                                -0.1, 0, 1,               # Class 1: Exactly 0 (Zero aggregation)
                                 0, median_val, 2,         # Class 2: > 0 to Median (Low aggregation)
                                 median_val, 100, 3        # Class 3: > Median to 100 (High aggregation)
                             ]
@@ -884,21 +885,14 @@ class GeoprocesadorDeIUF:
             QgsProject.instance().addMapLayer(ai_reclass) if intermedios else None
 
             #> 6.2.7. Combinar (intersectar) las capas generadas (distribución * ai)
-            self.log("-> Combinando resultados... (7/8)") if intermedios else None
-            self.log("--> Vectorizando la capa ai_raster_reclass...") if intermedios else None
-            ai_reclass_vector = processing.run("gdal:polygonize", {
-                'INPUT': ai_reclass,
-                'FIELD': 'AI_value',
-                'OUTPUT': 'TEMPORARY_OUTPUT'
-            }, feedback=self.feedback) ['OUTPUT']
-            processing.run("native:createspatialindex", {'INPUT': ai_reclass_vector}, feedback=self.feedback)
-            if self.cancelado: return
-            self.log("--> Intersectando conjuntos de edificaciones con valores de AI...") if intermedios else None
-            resultado = processing.run("native:intersection", {
+            self.log("-> Intersectando conjuntos de edificaciones con valores de AI... (7/8)") if intermedios else None
+            resultado = processing.run("native:zonalstatisticsfb", {
                 'INPUT': clusters,
-                'OVERLAY': ai_reclass_vector,
+                'INPUT_RASTER': ai_reclass,
+                'COLUMN_PREFIX': 'AI_',
+                'STATISTICS': [3], #cada cluster adquirirá el valor de AI más común entre los pixels de su interior (median)
                 'OUTPUT': 'TEMPORARY_OUTPUT'
-            }, feedback=self.feedback)['OUTPUT'] #cuello de botella aquí
+            }, feedback=self.feedback)['OUTPUT']
             processing.run("native:createspatialindex", {'INPUT': resultado}, feedback=self.feedback)
             if self.cancelado: return
 
@@ -913,18 +907,18 @@ class GeoprocesadorDeIUF:
                 'NEW_FIELD': True,
                 'FORMULA': """
                     CASE
-                        WHEN "TIPO_DE_CONJUNTO" = 'Viviendas aisladas' AND "AI_value" = 1 THEN 'Viviendas aisladas + Agregación cero'
-                        WHEN "TIPO_DE_CONJUNTO" = 'Viviendas dispersas' AND "AI_value" = 1 THEN 'Viviendas dispersas + Agregación cero'
-                        WHEN "SUBTIPO_DE_CONJUNTO" = 'Agrupacion densa' AND "AI_value" = 1 THEN 'Agrupacion densa + Agregación cero'
-                        WHEN "SUBTIPO_DE_CONJUNTO" = 'Agrupacion muy densa' AND "AI_value" = 1 THEN 'Agrupacion muy densa + Agregación cero'
-                        WHEN "TIPO_DE_CONJUNTO" = 'Viviendas aisladas' AND "AI_value" = 2 THEN 'Viviendas aisladas + Agregación baja'
-                        WHEN "TIPO_DE_CONJUNTO" = 'Viviendas dispersas' AND "AI_value" = 2 THEN 'Viviendas dispersas + Agregación baja'
-                        WHEN "SUBTIPO_DE_CONJUNTO" = 'Agrupacion densa' AND "AI_value" = 2 THEN 'Agrupacion densa + Agregación baja'
-                        WHEN "SUBTIPO_DE_CONJUNTO" = 'Agrupacion muy densa' AND "AI_value" = 2 THEN 'Agrupacion muy densa + Agregación baja'
-                        WHEN "TIPO_DE_CONJUNTO" = 'Viviendas aisladas' AND "AI_value" = 3 THEN 'Viviendas aisladas + Agregación alta'
-                        WHEN "TIPO_DE_CONJUNTO" = 'Viviendas dispersas' AND "AI_value" = 3 THEN 'Viviendas dispersas + Agregación alta'
-                        WHEN "SUBTIPO_DE_CONJUNTO" = 'Agrupacion densa' AND "AI_value" = 3 THEN 'Agrupacion densa + Agregación alta'
-                        WHEN "SUBTIPO_DE_CONJUNTO" = 'Agrupacion muy densa' AND "AI_value" = 3 THEN 'Agrupacion muy densa + Agregación alta'
+                        WHEN "TIPO_DE_CONJUNTO" = 'Viviendas aisladas' AND "AI_median" = 1 THEN 'Viviendas aisladas + Agregación cero'
+                        WHEN "TIPO_DE_CONJUNTO" = 'Viviendas dispersas' AND "AI_median" = 1 THEN 'Viviendas dispersas + Agregación cero'
+                        WHEN "SUBTIPO_DE_CONJUNTO" = 'Agrupacion densa' AND "AI_median" = 1 THEN 'Agrupacion densa + Agregación cero'
+                        WHEN "SUBTIPO_DE_CONJUNTO" = 'Agrupacion muy densa' AND "AI_median" = 1 THEN 'Agrupacion muy densa + Agregación cero'
+                        WHEN "TIPO_DE_CONJUNTO" = 'Viviendas aisladas' AND "AI_median" = 2 THEN 'Viviendas aisladas + Agregación baja'
+                        WHEN "TIPO_DE_CONJUNTO" = 'Viviendas dispersas' AND "AI_median" = 2 THEN 'Viviendas dispersas + Agregación baja'
+                        WHEN "SUBTIPO_DE_CONJUNTO" = 'Agrupacion densa' AND "AI_median" = 2 THEN 'Agrupacion densa + Agregación baja'
+                        WHEN "SUBTIPO_DE_CONJUNTO" = 'Agrupacion muy densa' AND "AI_median" = 2 THEN 'Agrupacion muy densa + Agregación baja'
+                        WHEN "TIPO_DE_CONJUNTO" = 'Viviendas aisladas' AND "AI_median" = 3 THEN 'Viviendas aisladas + Agregación alta'
+                        WHEN "TIPO_DE_CONJUNTO" = 'Viviendas dispersas' AND "AI_median" = 3 THEN 'Viviendas dispersas + Agregación alta'
+                        WHEN "SUBTIPO_DE_CONJUNTO" = 'Agrupacion densa' AND "AI_median" = 3 THEN 'Agrupacion densa + Agregación alta'
+                        WHEN "SUBTIPO_DE_CONJUNTO" = 'Agrupacion muy densa' AND "AI_median" = 3 THEN 'Agrupacion muy densa + Agregación alta'
                         ELSE 'Fuera de IUF'
                     END
                 """,
