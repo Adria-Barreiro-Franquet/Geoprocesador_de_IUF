@@ -292,7 +292,7 @@ class GeoprocesadorDeIUF:
 
         self.log("----------------------------------------------------------------")
 
-        self.log("Aligerando temporalmente las capas de entrada...")
+        self.log("Aligerando temporalmente las capas de entrada...") if intermedios else None
         capa_edif = processing.run("native:retainfields", {
             'INPUT': capa_edif,
             'FIELDS': ['id'],
