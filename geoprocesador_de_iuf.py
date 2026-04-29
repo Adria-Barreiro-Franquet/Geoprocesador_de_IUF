@@ -313,7 +313,7 @@ class GeoprocesadorDeIUF:
         if metodo == "Alcassena et al.":
 
             #> 6.1.1. Calcular el centroide de cada edificio:
-            self.log("-> Calculando centroides de las edificaciones... (1/13)") if intermedios else None
+            self.log("-> Calculando centroides de las edificaciones... (1/12)") if intermedios else None
             self.log("--> Calculando centroides...")
             capa_centroides = processing.run("native:centroids", {
                 'INPUT': capa_edif,
@@ -324,7 +324,7 @@ class GeoprocesadorDeIUF:
             if self.cancelado: return
             
             #> 6.1.2. Crear una cuadrícula de 150x150m i 450x450m:
-            self.log("-> Creando cuadrículas de 150x150m i 450x450m... (2/13)") if intermedios else None
+            self.log("-> Creando cuadrículas de 150x150m i 450x450m... (2/12)") if intermedios else None
             bb = capa_comb.extent() #se toma la extensión de la capa de combustible para asegurar que cubre toda el área de estudio
             capa_cuadricula = processing.run("native:creategrid", {
                 'TYPE': 2,
@@ -352,7 +352,7 @@ class GeoprocesadorDeIUF:
             if self.cancelado: return
 
             #> 6.1.3. Calcular la densidad de edificaciones en cada celda de la cuadricula de 450x450m (edificios / km^2):
-            self.log("-> Calculando densidad de edificaciones en cada celda de la cuadricula de 450x450m... (3/13)") if intermedios else None
+            self.log("-> Calculando densidad de edificaciones en cada celda de la cuadricula de 450x450m... (3/12)") if intermedios else None
             self.log("--> Contando...") if intermedios else None
             capa_cuadricula_dens = processing.run("native:countpointsinpolygon", {
                 'POLYGONS': capa_cuadricula_dens,
@@ -376,7 +376,7 @@ class GeoprocesadorDeIUF:
             if self.cancelado: return
 
             #> 6.1.4. Clasificar cada cuadrícula de 450x450m en 3 clases de densidad (muy_baja, baja, medio_alta) i añadir esta clasificación a cada celda de la cuadricula de 150x150m:
-            self.log("-> Clasificando la densidad de cada celda de la cuadricula de 450x450m y añadiendo la clasificación a la celda de la cuadricula de 150x150m... (4/13)") if intermedios else None
+            self.log("-> Clasificando la densidad de cada celda de la cuadricula de 450x450m y añadiendo la clasificación a la celda de la cuadricula de 150x150m... (4/12)") if intermedios else None
             capa_cuadricula_dens = processing.run("native:fieldcalculator", {
                 'INPUT': capa_cuadricula_dens,
                 'FIELD_NAME': 'densidad_clase',
@@ -407,7 +407,7 @@ class GeoprocesadorDeIUF:
             }, feedback=self.feedback)['OUTPUT']
             
             #> 6.1.5. Reclasificar la capa de combustible (siose) en 2 clases (vegetado y no_vegetado):
-            self.log("-> Reclasificando los usos del suelo... (5/13)") if intermedios else None
+            self.log("-> Reclasificando los usos del suelo... (5/12)") if intermedios else None
             self.log("--> Reclasificando...")
             capa_comb = processing.run("native:fieldcalculator", {
                 'INPUT': capa_comb,
@@ -421,7 +421,7 @@ class GeoprocesadorDeIUF:
             if self.cancelado: return
 
             #> 6.1.6. Calcular si cada celda contiene mayoritariamente suelo vegetado o no vegetado:
-            self.log("-> Calculando el contenido mayoritario de cada celda... (6/13)") if intermedios else None
+            self.log("-> Calculando el contenido mayoritario de cada celda... (6/12)") if intermedios else None
             self.log("--> Extrayendo solo las partes de la capa de combustible que son vegetadas...") if intermedios else None
             capa_vegetada = processing.run("native:extractbyattribute", {
                 'INPUT': capa_comb,
@@ -471,7 +471,7 @@ class GeoprocesadorDeIUF:
             if self.cancelado: return
 
             #> 6.1.7. Combinar poligonos de contenido vegetado:
-            self.log("-> Combinando los polígonos de contenido vegetado... (7/13)") if intermedios else None
+            self.log("-> Combinando los polígonos de contenido vegetado... (7/12)") if intermedios else None
             capa_vegetada = processing.run("gdal:dissolve", {
                 'INPUT': capa_vegetada,
                 'GEOMETRY': 'geom',
@@ -487,7 +487,7 @@ class GeoprocesadorDeIUF:
             QgsProject.instance().addMapLayer(capa_vegetada) if intermedios else None
 
             #> 6.1.8. Identificar montes de >5km^2:
-            self.log("-> Identificando montes de más de 5 km^2... (8/13)") if intermedios else None
+            self.log("-> Identificando montes de más de 5 km^2... (8/12)") if intermedios else None
             capa_montes = processing.run("native:extractbyexpression", {
                 'INPUT': capa_vegetada,
                 'EXPRESSION': '$area > 5000000', #5 km^2 = 5000000 m^2
@@ -499,7 +499,7 @@ class GeoprocesadorDeIUF:
             QgsProject.instance().addMapLayer(capa_montes) if intermedios else None
 
             #> 6.1.9. Calcular el radio de afectación por pavesas (embers)
-            self.log("-> Calculando el radio de afectación por pavesas... (9/13)") if intermedios else None
+            self.log("-> Calculando el radio de afectación por pavesas... (9/12)") if intermedios else None
             capa_buffer_pavesas = processing.run("gdal:buffervectors", {
                 'INPUT': capa_montes,
                 'GEOMETRY': 'geom',
@@ -513,7 +513,7 @@ class GeoprocesadorDeIUF:
             QgsProject.instance().addMapLayer(capa_buffer_pavesas) if intermedios else None
 
             #> 6.1.10. Añadir a cada celda de la cuadrícula la información de si intersecta o no con el radio de afectación por pavesas:
-            self.log("-> Añadiendo información de intersección con el radio de afectación... (10/13)") if intermedios else None
+            self.log("-> Añadiendo información de intersección con el radio de afectación... (10/12)") if intermedios else None
             self.log("--> Preparando el cruce espacial...") if intermedios else None
             capa_buffer_pavesas = processing.run("native:fieldcalculator", {
                 'INPUT': capa_buffer_pavesas,
@@ -557,7 +557,7 @@ class GeoprocesadorDeIUF:
             QgsProject.instance().addMapLayer(capa_cuadricula) if intermedios else None
 
             #> 6.1.11. Calcular el tipo de IUF en cada celda de la cuadrícula según la fórmula del método Alcassena et al.:
-            self.log("-> Calculando el tipo de IUF en cada celda... (11/13)") if intermedios else None
+            self.log("-> Calculando el tipo de IUF en cada celda... (11/12)") if intermedios else None
             capa_resultado = processing.run("native:fieldcalculator", {
                 'INPUT': capa_cuadricula,
                 'FIELD_NAME': 'clase_IUF',
@@ -598,36 +598,8 @@ class GeoprocesadorDeIUF:
             processing.run("native:createspatialindex", {'INPUT': capa_resultado}, feedback=self.feedback)
             if self.cancelado: return
 
-            #> 6.1.12. Rellenar celdas vacías según el tipo de IUF más común entre sus vecinas:
-            self.log("-> Rellenando celdas vacías... (12/13)") if intermedios else None
-            idx_clase = capa_resultado.fields().indexOf('clase_IUF')
-            for n in range(2):
-                if self.cancelado: return
-                self.log(f"--> Ejecutando pasada de rellenado {n+1}/2...") if intermedios else None
-                index = QgsSpatialIndex(capa_resultado.getFeatures())
-                query = QgsFeatureRequest().setFilterExpression('"clase_IUF" = \'No clasificado\'')
-                features_a_reparar = list(capa_resultado.getFeatures(query))
-                if not features_a_reparar: break
-                cambios = {}
-                for f in features_a_reparar:
-                    if self.cancelado: return
-                    ids_vecinos = index.intersects(f.geometry().boundingBox())
-                    clases_vecinas = []
-                    for v_id in ids_vecinos:
-                        if v_id == f.id(): continue
-                        feat_v = capa_resultado.getFeature(v_id)
-                        val = feat_v['clase_IUF']
-                        if val and val != 'No clasificado':
-                            clases_vecinas.append(val)
-                    if clases_vecinas:
-                        moda = Counter(clases_vecinas).most_common(1)[0][0]
-                        cambios[f.id()] = {idx_clase: moda}
-                if cambios:
-                    capa_resultado.dataProvider().changeAttributeValues(cambios)
-                    capa_resultado.updateFields()
-
-            #> 6.1.13. Eliminar celdas que no se han podido clasificar y disolver las que sí:
-            self.log("-> Eliminando y disolviendo celdas... (13/13)") if intermedios else None
+            #> 6.1.12. Eliminar celdas que no se han podido clasificar y disolver las que sí:
+            self.log("-> Eliminando y disolviendo celdas... (12/12)") if intermedios else None
             self.log("--> Extrayendo solo las celdas clasificadas...") if intermedios else None
             capa_resultado = processing.run("native:extractbyexpression", {
                 'INPUT': capa_resultado,
