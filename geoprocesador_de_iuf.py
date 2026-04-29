@@ -314,7 +314,7 @@ class GeoprocesadorDeIUF:
 
             #> 6.1.1. Calcular el centroide de cada edificio:
             self.log("-> Calculando centroides de las edificaciones... (1/12)") if intermedios else None
-            self.log("--> Calculando centroides...")
+            self.log("--> Calculando centroides...") if intermedios else None
             capa_centroides = processing.run("native:centroids", {
                 'INPUT': capa_edif,
                 'ALL_PARTS': False,
@@ -408,7 +408,7 @@ class GeoprocesadorDeIUF:
             
             #> 6.1.5. Reclasificar la capa de combustible (siose) en 2 clases (vegetado y no_vegetado):
             self.log("-> Reclasificando los usos del suelo... (5/12)") if intermedios else None
-            self.log("--> Reclasificando...")
+            self.log("--> Reclasificando...") if intermedios else None
             capa_comb = processing.run("native:fieldcalculator", {
                 'INPUT': capa_comb,
                 'FIELD_NAME': 'contenido',
@@ -432,7 +432,7 @@ class GeoprocesadorDeIUF:
             }, feedback=self.feedback)['OUTPUT']
             processing.run("native:createspatialindex", {'INPUT': capa_vegetada}, feedback=self.feedback)
             if self.cancelado: return
-            self.log("--> Optimizando vegetación...")
+            self.log("--> Optimizando vegetación...") if intermedios else None
             capa_vegetada = processing.run("native:subdivide", {
                 'INPUT': capa_vegetada,
                 'MAX_VERTICES': 1000,
