@@ -503,7 +503,7 @@ class GeoprocesadorDeIUF:
             capa_buffer_pavesas = processing.run("gdal:buffervectors", {
                 'INPUT': capa_montes,
                 'GEOMETRY': 'geom',
-                'DISTANCE': 2000, #según Alcassena et al., el radio de afectación por pavesas es de 2 km
+                'DISTANCE': 500, #según Alcassena et al., el radio de afectación por pavesas es de 2 km | La realidad es que 500 metros es suficiente (dato respaldado por marcos legales)
                 'DISSOLVE': True,
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT'] #el algoritmo de gdal es más rapido que el nativo de QGIS
