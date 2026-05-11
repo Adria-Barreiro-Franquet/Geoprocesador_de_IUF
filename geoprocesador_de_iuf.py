@@ -490,6 +490,7 @@ class GeoprocesadorDeIUF:
             self.log("-> Identificando montes de más de 5 km^2... (8/12)") if intermedios else None
             capa_montes = processing.run("native:extractbyexpression", {
                 'INPUT': capa_vegetada,
+                'FIELD': 'contenido',
                 'EXPRESSION': '$area > 5000000', #5 km^2 = 5000000 m^2
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
