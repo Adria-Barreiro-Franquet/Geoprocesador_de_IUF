@@ -483,6 +483,14 @@ class GeoprocesadorDeIUF:
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
             if self.cancelado: return
+            capa_vegetada = processing.run("native:addautoincrementalfield", {
+                'INPUT': capa_vegetada,
+                'FIELD_NAME': 'fid',
+                'START': 1,
+                'OUTPUT': 'TEMPORARY_OUTPUT'
+            }, feedback=self.feedback)['OUTPUT'] #arreglo de fids
+            processing.run("native:createspatialindex", {'INPUT': capa_cuadricula}, feedback=self.feedback) #tras native:addautoincrementalfield se pierde el spatial index
+            if self.cancelado: return
             capa_vegetada.setName("vegetacion_considerada")
             QgsProject.instance().addMapLayer(capa_vegetada) if intermedios else None
 
@@ -490,7 +498,6 @@ class GeoprocesadorDeIUF:
             self.log("-> Identificando montes de más de 5 km^2... (8/12)") if intermedios else None
             capa_montes = processing.run("native:extractbyexpression", {
                 'INPUT': capa_vegetada,
-                'FIELD': 'contenido',
                 'EXPRESSION': '$area > 5000000', #5 km^2 = 5000000 m^2
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
