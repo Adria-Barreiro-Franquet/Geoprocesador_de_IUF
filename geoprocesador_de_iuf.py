@@ -483,14 +483,6 @@ class GeoprocesadorDeIUF:
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
             if self.cancelado: return
-            capa_vegetada = processing.run("native:addautoincrementalfield", {
-                'INPUT': capa_vegetada,
-                'FIELD_NAME': 'fid',
-                'START': 1,
-                'OUTPUT': 'TEMPORARY_OUTPUT'
-            }, feedback=self.feedback)['OUTPUT'] #arreglo de fids
-            processing.run("native:createspatialindex", {'INPUT': capa_cuadricula}, feedback=self.feedback) #tras native:addautoincrementalfield se pierde el spatial index
-            if self.cancelado: return
             capa_vegetada.setName("vegetacion_considerada")
             QgsProject.instance().addMapLayer(capa_vegetada) if intermedios else None
 
