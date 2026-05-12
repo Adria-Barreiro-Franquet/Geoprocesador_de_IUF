@@ -483,6 +483,11 @@ class GeoprocesadorDeIUF:
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
             if self.cancelado: return
+            capa_vegetada = processing.run("native:deletecolumn", {
+                'INPUT': capa_vegetada,
+                'COLUMN': ['fid'],
+                'OUTPUT': 'TEMPORARY_OUTPUT'
+            }, feedback=self.feedback)['OUTPUT'] #los fids salen corrompidos
             capa_vegetada.setName("vegetacion_considerada")
             QgsProject.instance().addMapLayer(capa_vegetada) if intermedios else None
 
