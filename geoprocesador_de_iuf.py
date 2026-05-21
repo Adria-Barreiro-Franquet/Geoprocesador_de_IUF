@@ -658,7 +658,7 @@ class GeoprocesadorDeIUF:
             radio_afectacion_bosques = processing.run("gdal:buffervectors", {
                 'INPUT': capa_vegetada,
                 'GEOMETRY': 'geom',
-                'DISTANCE': 200,
+                'DISTANCE': 500,
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT'] #el algoritmo de gdal es más rapido que el nativo de QGIS
             radio_afectacion_bosques = QgsVectorLayer(radio_afectacion_bosques, "radio_afectacion_bosques", "ogr")
