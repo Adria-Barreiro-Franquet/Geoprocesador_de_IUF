@@ -23,7 +23,7 @@
 """
 
 import time, os, subprocess, processing, glob
-from qgis.core import QgsProject, QgsProcessingFeedback, QgsVectorLayer, QgsRasterLayer, QgsSpatialIndex, QgsFeatureRequest
+from qgis.core import QgsProject, QgsProcessingFeedback, QgsVectorLayer, QgsRasterLayer, QgsSpatialIndex, QgsFeatureRequest, QgsProcessingUtils
 from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication
 from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAction
@@ -442,7 +442,7 @@ class GeoprocesadorDeIUF:
             self.log("--> Comprobando geometrias...") if intermedios else None
             capa_vegetada = processing.run("native:fixgeometries", {
                 'INPUT': capa_vegetada,
-                'OUTPUT': 'TEMPORARY_OUTPUT'
+                'OUTPUT': QgsProcessingUtils.generateTempFilename("capa_vegetada_paso6.gpkg") #dado que luego se usa en algoritmos GDAL, no se puede escribir en RAM
             }, feedback=self.feedback)['OUTPUT']
             if self.cancelado: return
             self.log("--> Intersectando la capa de vegetado con la cuadrícula...") if intermedios else None
@@ -472,11 +472,8 @@ class GeoprocesadorDeIUF:
 
             #> 6.1.7. Combinar poligonos de contenido vegetado:
             self.log("-> Combinando los polígonos de contenido vegetado... (7/13)") if intermedios else None
-            geom_fieldname = capa_vegetada.dataProvider().geometryColumn()
-            self.log(geom_fieldname)
             capa_vegetada = processing.run("gdal:dissolve", {
                 'INPUT': capa_vegetada,
-                'GEOMETRY': geom_fieldname,
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT'] #el algoritmo de gdal es más rapido que el nativo de QGIS
             if self.cancelado: return
