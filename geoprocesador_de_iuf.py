@@ -472,9 +472,11 @@ class GeoprocesadorDeIUF:
 
             #> 6.1.7. Combinar poligonos de contenido vegetado:
             self.log("-> Combinando los polígonos de contenido vegetado... (7/13)") if intermedios else None
+            geom_fieldname = capa_vegetada.dataProvider().geometryColumn()
+            self.log(geom_fieldname)
             capa_vegetada = processing.run("gdal:dissolve", {
                 'INPUT': capa_vegetada,
-                'GEOMETRY': 'geom',
+                'GEOMETRY': geom_fieldname,
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT'] #el algoritmo de gdal es más rapido que el nativo de QGIS
             if self.cancelado: return
