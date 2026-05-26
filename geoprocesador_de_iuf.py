@@ -23,8 +23,8 @@
 """
 
 import time, os, subprocess, processing, glob
-from qgis.core import QgsProject, QgsProcessingFeedback, QgsVectorLayer, QgsRasterLayer, QgsSpatialIndex, QgsFeatureRequest
-from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication
+from qgis.core import QgsProject, QgsProcessingFeedback, QgsVectorLayer, QgsRasterLayer
+from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication, QStandardPaths
 from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAction
 from osgeo import gdal
@@ -472,12 +472,28 @@ class GeoprocesadorDeIUF:
 
             #> 6.1.7. Combinar poligonos de contenido vegetado:
             self.log("-> Combinando los polígonos de contenido vegetado... (7/13)") if intermedios else None
-            capa_vegetada = processing.run("native:dissolve", {
+            capa_vegetada_disco_path = os.path.join(QStandardPaths.writableLocation(QStandardPaths.TempLocation), "capa_vegetada.gpkg")
+            processing.run("native:savefeatures", {
                 'INPUT': capa_vegetada,
-                'OUTPUT': 'TEMPORARY_OUTPUT',
-                'SEPARATE_DISJOINT': True
-            }, feedback=self.feedback)['OUTPUT'] #el algoritmo de gdal es más rapido que el nativo de QGIS, pero la integración con el plugin es más eficiente con el algoritmo nativo
+                'OUTPUT': capa_vegetada_disco_path
+            }, feedback=self.feedback) #hay que pasar la capa vegetada de ram a disco para poder operar sin problemas con un algoritmo de gdal
             if self.cancelado: return
+            capa_vegetada = processing.run("gdal:dissolve", {
+                'INPUT': capa_vegetada_disco_path,
+                'GEOMETRY': 'geom',
+                'OUTPUT': 'TEMPORARY_OUTPUT'
+            }, feedback=self.feedback)['OUTPUT'] #el algoritmo de gdal es más rapido que el nativo de QGIS
+            if self.cancelado: return
+            capa_vegetada = processing.run("native:multiparttosingleparts", {
+                'INPUT': capa_vegetada,
+                'OUTPUT': 'TEMPORARY_OUTPUT'
+            }, feedback=self.feedback)['OUTPUT']
+            if self.cancelado: return
+            """capa_vegetada = processing.run("native:deletecolumn", {
+                'INPUT': capa_vegetada,
+                'COLUMN': ['fid'],
+                'OUTPUT': 'TEMPORARY_OUTPUT'
+            }, feedback=self.feedback)['OUTPUT'] #los fids salen corrompidos"""
             capa_vegetada.setName("vegetacion_considerada")
             QgsProject.instance().addMapLayer(capa_vegetada) if intermedios else None
 
