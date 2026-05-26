@@ -472,23 +472,32 @@ class GeoprocesadorDeIUF:
 
             #> 6.1.7. Combinar poligonos de contenido vegetado:
             self.log("-> Combinando los polígonos de contenido vegetado... (7/13)") if intermedios else None
+            self.log("--> Preparando capa vegetada...") if intermedios else None
             capa_vegetada_disco_path = os.path.join(QStandardPaths.writableLocation(QStandardPaths.TempLocation), "capa_vegetada.gpkg")
             processing.run("native:savefeatures", {
                 'INPUT': capa_vegetada,
                 'OUTPUT': capa_vegetada_disco_path
             }, feedback=self.feedback) #hay que pasar la capa vegetada de ram a disco para poder operar sin problemas con un algoritmo de gdal
             if self.cancelado: return
+            self.log("--> Disolviendo...") if intermedios else None
             capa_vegetada = processing.run("gdal:dissolve", {
                 'INPUT': capa_vegetada_disco_path,
                 'GEOMETRY': 'geom',
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT'] #el algoritmo de gdal es más rapido que el nativo de QGIS
             if self.cancelado: return
+            self.log("--> Separando multipartes...") if intermedios else None
             capa_vegetada = processing.run("native:multiparttosingleparts", {
                 'INPUT': capa_vegetada,
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
             if self.cancelado: return
+            self.log("--> Limpiando resultado...") if intermedios else None
+            capa_vegetada = processing.run("native:deletecolumn", {
+                'INPUT': capa_vegetada,
+                'COLUMN': ['fid'],
+                'OUTPUT': 'TEMPORARY_OUTPUT'
+            }, feedback=self.feedback)['OUTPUT'] #los fids salen corrompidos (arreglo marronero pero efectivo para poder guardar la capa)
             capa_vegetada.setName("vegetacion_considerada")
             QgsProject.instance().addMapLayer(capa_vegetada) if intermedios else None
 
