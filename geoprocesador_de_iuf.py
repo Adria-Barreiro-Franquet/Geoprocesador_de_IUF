@@ -472,13 +472,13 @@ class GeoprocesadorDeIUF:
 
             #> 6.1.7. Combinar poligonos de contenido vegetado:
             self.log("-> Combinando los polígonos de contenido vegetado... (7/13)") if intermedios else None
-            self.log("--> Preparando capa vegetada...") if intermedios else None
+            """self.log("--> Preparando capa vegetada...") if intermedios else None
             capa_vegetada_disco_path = os.path.join(QStandardPaths.writableLocation(QStandardPaths.TempLocation), "capa_vegetada.gpkg")
             processing.run("native:savefeatures", {
                 'INPUT': capa_vegetada,
                 'OUTPUT': capa_vegetada_disco_path
             }, feedback=self.feedback) #hay que pasar la capa vegetada de ram a disco para poder operar sin problemas con un algoritmo de gdal
-            if self.cancelado: return
+            if self.cancelado: return"""
             self.log("--> Disolviendo...") if intermedios else None
             capa_vegetada = processing.run("gdal:dissolve", {
                 'INPUT': capa_vegetada_disco_path,
