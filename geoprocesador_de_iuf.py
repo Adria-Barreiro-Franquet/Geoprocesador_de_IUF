@@ -481,7 +481,7 @@ class GeoprocesadorDeIUF:
             if self.cancelado: return"""
             self.log("--> Disolviendo...") if intermedios else None
             capa_vegetada = processing.run("gdal:dissolve", {
-                'INPUT': capa_vegetada_disco_path,
+                'INPUT': capa_vegetada,
                 'GEOMETRY': 'geom',
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT'] #el algoritmo de gdal es más rapido que el nativo de QGIS
