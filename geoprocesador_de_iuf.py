@@ -23,7 +23,7 @@
 """
 
 import time, os, subprocess, processing, glob
-from qgis.core import QgsProject, QgsProcessingFeedback, QgsVectorLayer, QgsRasterLayer
+from qgis.core import QgsProject, QgsProcessingFeedback, QgsVectorLayer, QgsRasterLayer, QgsGeometry, QgsFeature
 from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication, QStandardPaths
 from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAction
@@ -472,32 +472,19 @@ class GeoprocesadorDeIUF:
 
             #> 6.1.7. Combinar poligonos de contenido vegetado:
             self.log("-> Combinando los polígonos de contenido vegetado... (7/13)") if intermedios else None
-            """self.log("--> Preparando capa vegetada...") if intermedios else None
-            capa_vegetada_disco_path = os.path.join(QStandardPaths.writableLocation(QStandardPaths.TempLocation), "capa_vegetada.gpkg")
-            processing.run("native:savefeatures", {
-                'INPUT': capa_vegetada,
-                'OUTPUT': capa_vegetada_disco_path
-            }, feedback=self.feedback) #hay que pasar la capa vegetada de ram a disco para poder operar sin problemas con un algoritmo de gdal
-            if self.cancelado: return"""
-            self.log("--> Disolviendo...") if intermedios else None
-            capa_vegetada = processing.run("gdal:dissolve", {
-                'INPUT': capa_vegetada,
-                'GEOMETRY': 'geom',
-                'OUTPUT': 'TEMPORARY_OUTPUT'
-            }, feedback=self.feedback)['OUTPUT'] #el algoritmo de gdal es más rapido que el nativo de QGIS
+            self.log("--> Disolviendo capa vegetada...") if intermedios else None
+            disolved_geom = QgsGeometry.unaryUnion([f.geometry() for f in capa_vegetada.getFeatures()])
+            capa_dissolve = QgsVectorLayer(f"MultiPolygon?crs={capa_vegetada.crs().authid()}", "union_temporal", "memory")
+            geoms = QgsFeature()
+            geoms.setGeometry(disolved_geom)
+            capa_dissolve.dataProvider().addFeatures([geoms])
             if self.cancelado: return
             self.log("--> Separando multipartes...") if intermedios else None
             capa_vegetada = processing.run("native:multiparttosingleparts", {
-                'INPUT': capa_vegetada,
+                'INPUT': capa_dissolve,
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }, feedback=self.feedback)['OUTPUT']
             if self.cancelado: return
-            self.log("--> Limpiando resultado...") if intermedios else None
-            capa_vegetada = processing.run("native:deletecolumn", {
-                'INPUT': capa_vegetada,
-                'COLUMN': ['fid'],
-                'OUTPUT': 'TEMPORARY_OUTPUT'
-            }, feedback=self.feedback)['OUTPUT'] #los fids salen corrompidos (arreglo marronero pero efectivo para poder guardar la capa)
             capa_vegetada.setName("vegetacion_considerada")
             QgsProject.instance().addMapLayer(capa_vegetada) if intermedios else None
 
