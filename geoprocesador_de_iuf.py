@@ -833,6 +833,7 @@ class GeoprocesadorDeIUF:
             except subprocess.CalledProcessError as e:
                 self.log(f"Error crítico ejecutando Fragstats: {e}")
             self.log("--> Hecho, obteniendo resultados...") if intermedios else None
+            time.sleep(20) #espera para asegurar que Fragstats haya terminado de escribir los archivos de salida
             input_dir = os.path.dirname(capa_vegetada_raster_path)
             input_filename = os.path.basename(capa_vegetada_raster_path) #OUTPUT.tif
             fragstats_output_folder = f"{input_filename}_mw1" #OUTPUT.tif_mw1
