@@ -51,6 +51,13 @@
         </property>
        </widget>
       </item>
+      <item row="2" column="0">
+       <widget class="QRadioButton" name="metodoLampinMaillet">
+        <property name="text">
+         <string>Lampin-Maillet et al.</string>
+        </property>
+       </widget>
+      </item>
       <item row="0" column="0">
        <widget class="QRadioButton" name="metodoAlcasena">
         <property name="text">
@@ -71,20 +78,6 @@
         </property>
        </widget>
       </item>
-      <item row="2" column="0">
-       <widget class="QRadioButton" name="metodoLampinMaillet">
-        <property name="text">
-         <string>Lampin-Maillet et al.</string>
-        </property>
-       </widget>
-      </item>
-      <item row="0" column="1" rowspan="2">
-       <widget class="QGroupBox" name="groupBox_2">
-        <property name="title">
-         <string>RESOLUCIÓN:</string>
-        </property>
-       </widget>
-      </item>
       <item row="2" column="1">
        <widget class="QSpinBox" name="resolucion_lampin">
         <property name="minimum">
@@ -95,6 +88,13 @@
         </property>
         <property name="value">
          <number>15</number>
+        </property>
+       </widget>
+      </item>
+      <item row="0" column="1">
+       <widget class="QLabel" name="label">
+        <property name="text">
+         <string>RESOLUCIÓN:</string>
         </property>
        </widget>
       </item>
