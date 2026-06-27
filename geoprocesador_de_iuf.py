@@ -234,7 +234,7 @@ class GeoprocesadorDeIUF:
             QCoreApplication.processEvents()
         self.feedback.progressChanged.connect(actualizar_barra)
 
-        ids_monte = '121,122,200,210,222,223,224,231,232,251,252,253,254,255,256,257,258,259,260,241,280,290,300,301,302,310,312,313,316,320'
+        ids_monte = '102,122,200,210,290,300,301,302,310,312,313,316,320'
         
         #> 1. Reiniciar la interfaz
         self.dlg.txtLog.clear()
