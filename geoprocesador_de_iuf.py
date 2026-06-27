@@ -578,27 +578,27 @@ class GeoprocesadorDeIUF:
                     CASE
                         -- (1) Very low and low housing density
                         WHEN "contenido_predominante" = 'no_vegetado' AND ("densidad_clase" = 'baja' OR "densidad_clase" = 'muy_baja') AND "interseccion_pavesas" = 'no' 
-                            THEN 'Densidad de edificaciones baja o muy baja en terreno no vegetado'
+                            THEN 'Urbano de baja densidad'
                             
                         -- (2) Medium and high housing density
                         WHEN "contenido_predominante" = 'no_vegetado' AND "densidad_clase" = 'medio_alta' AND "interseccion_pavesas" = 'no' 
-                            THEN 'Densidad de edificaciones medio_alta en terreno no vegetado'
+                            THEN 'Urbano de alta densidad'
                             
                         -- (3) Vegetated
                         WHEN "contenido_predominante" = 'vegetado' AND "densidad" = 0 
-                            THEN 'Vegetado sin edificaciones'
+                            THEN 'Vegetación'
                             
                         -- (4) Dispersed rural
                         WHEN "contenido_predominante" = 'vegetado' AND "densidad_clase" = 'muy_baja'
-                            THEN 'Rural disperso'
+                            THEN 'Diseminado'
                             
                         -- (5) Intermix WUI
                         WHEN "contenido_predominante" = 'vegetado' AND ("densidad_clase" = 'baja' OR "densidad_clase" = 'medio_alta')
-                            THEN 'IUF intermix'
+                            THEN 'No compacto'
                             
                         -- (6) Interface WUI
                         WHEN "contenido_predominante" = 'no_vegetado' AND ("densidad_clase" = 'baja' OR "densidad_clase" = 'medio_alta') AND "interseccion_pavesas" = 'sí' 
-                            THEN 'IUF interface'
+                            THEN 'Compacto'
                             
                         ELSE 'No clasificado' 
                     END
