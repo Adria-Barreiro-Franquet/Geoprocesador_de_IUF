@@ -301,15 +301,6 @@ class GeoprocesadorDeIUF:
         self.log("----------------------------------------------------------------")
 
         self.log("Aligerando temporalmente las capas de entrada...") if intermedios else None
-        bb = capa_comb.extent()
-        extent_str = f"{bb.xMinimum()},{bb.xMaximum()},{bb.yMinimum()},{bb.yMaximum()} [{capa_comb.crs().authid()}]"
-        capa_edif = processing.run("native:extractbyextent", {
-            'INPUT': capa_edif,
-            'EXTENT': extent_str,
-            'OUTPUT': 'TEMPORARY_OUTPUT'
-        }, feedback=self.feedback)['OUTPUT']
-        if self.cancelado: return
-
         capa_edif = processing.run("native:retainfields", {
             'INPUT': capa_edif,
             'FIELDS': ['id'],
@@ -323,7 +314,7 @@ class GeoprocesadorDeIUF:
         }, feedback=self.feedback)['OUTPUT']
         if self.cancelado: return
 
-        self.log("Reproyectando a EPSEG:3857") if intermedios else None
+        self.log("Reproyectando a EPSEG:3857...") if intermedios else None
         capa_edif = processing.run("native:reprojectlayer", {
             'INPUT': capa_edif,
             'TARGET_CRS': 'EPSG:3857',
