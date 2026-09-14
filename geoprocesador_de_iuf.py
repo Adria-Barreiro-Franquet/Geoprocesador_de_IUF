@@ -337,6 +337,13 @@ class GeoprocesadorDeIUF:
         }, feedback=self.feedback)['OUTPUT']
         if self.cancelado: return
 
+        self.log("Reparando geometrías inválidas en la capa de combustible...")
+        capa_comb = processing.run("native:fixgeometries", {
+            'INPUT': capa_comb,
+            'OUTPUT': 'TEMPORARY_OUTPUT'
+        }, feedback=self.feedback)['OUTPUT']
+        if self.cancelado: return
+
         processing.run("native:createspatialindex", {'INPUT': capa_edif}, feedback=self.feedback)
         processing.run("native:createspatialindex", {'INPUT': capa_comb}, feedback=self.feedback)
 
