@@ -328,7 +328,7 @@ class GeoprocesadorDeIUF:
         }, feedback=self.feedback)['OUTPUT']
         if self.cancelado: return
 
-        self.log("Reparando geometrías inválidas...")
+        self.log("Reparando geometrías inválidas...") if intermedios else None
         capa_comb = processing.run("native:fixgeometries", {
             'INPUT': capa_comb,
             'OUTPUT': 'TEMPORARY_OUTPUT'
