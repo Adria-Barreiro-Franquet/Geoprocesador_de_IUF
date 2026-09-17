@@ -6,13 +6,14 @@ version=0.1
 author=Adrià Barreiro Franquet
 email=adriba2105@gmail.com
 
-about=Este plugin de QGIS genera un mapa de IUF según el método escogido.
-tracker=https://github.com/Adria-Barreiro-Franquet/Geoprocesador_de_IUF
+about=Este plugin de QGIS genera un mapa de IUF según el método escogido. Si se escoge el "Método Lampin-Maillet" Fragstats debe estar instalado siguiendo los pasos descritos en el archivo "README.md".
+tracker=https://github.com/Adria-Barreiro-Franquet/Geoprocesador_de_IUF/issues
 repository=https://github.com/Adria-Barreiro-Franquet/Geoprocesador_de_IUF
+homepage=https://github.com/Adria-Barreiro-Franquet/Geoprocesador_de_IUF
 
 category=Vector
 tags=wui, Wild Urban Interface, IUF, Interficie Urbana Forestal
-homepage=https://github.com/Adria-Barreiro-Franquet/Geoprocesador_de_IUF
+licence=GPL-2.0-or-later
 icon=icon.png
 experimental=True
 deprecated=False
